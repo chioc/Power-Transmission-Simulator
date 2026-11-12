@@ -4,6 +4,7 @@
 
 - 仕様書：[docs/仕様書.md](docs/仕様書.md)
 - 開発ルール：[CLAUDE.md](CLAUDE.md)
+- ⑦の提出を使うための準備（先生向け）：[docs/シート設定手順.md](docs/シート設定手順.md)
 - 関連資料（Google Drive）：[根拠シートの共有Driveフォルダ](https://drive.google.com/drive/folders/1m6v2QUdTdd8daQIAinZgDG2OQRa9C-mA?usp=sharing)
 
 ## GAS への反映

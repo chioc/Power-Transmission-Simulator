@@ -3,7 +3,7 @@
   "private": true,
   "description": "動力伝達・運動変換シミュレーター（GAS）。このファイルは手元のテスト用で、GAS には反映されない",
   "scripts": {
-    "test": "node --test tests/logic.test.js",
+    "test": "node --test tests/logic.test.js tests/submit.test.js",
     "preview": "node tools/build-preview.js"
   }
 }

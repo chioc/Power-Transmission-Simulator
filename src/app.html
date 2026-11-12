@@ -20,7 +20,8 @@
     quiz: {},        // 確認問題の選択と結果
     calc: { ratio: '', rpm: '', result: null, key: '' },
     fromSummary: false,
-    summary: { answers: [null, null, null, null], results: [], learned: '', reason: '' }
+    summary: { answers: [null, null, null, null], results: [], learned: '', reason: '', classCode: '', number: '',
+      submit: { sending: false, saved: null, error: null } }
   };
 
   // ---------- 小さな道具 ----------
@@ -942,34 +943,11 @@
     mountSim(app.querySelector('[data-k="sim"]'), mc.scene());
   }
 
-  // ⑦ まとめ課題：小テスト「機構の特徴を確かめよう」（選択式4問）と、振り返り「生活の中の機構を説明しよう」（2欄）
-  // 問題・選択肢・解説は仕様書「3. ⑦ まとめ課題」の表のとおり。ref は「実験・観察に戻る」で開く画面
-  var FINAL_QUIZ = [
-    { q: '離れた2つの軸に、歯とかみ合わせて回転を伝える組合せはどれか',
-      opts: ['摩擦車', 'チェーンとスプロケット', 'ラックとピニオン'], ans: 1,
-      exp: 'チェーンが両方のスプロケットとかみ合い、離れた軸へ回転を伝える。',
-      ref: { label: '⑥ 教科書の機構を見る', go: 'list' } },
-    { q: '入力軸の回転数・トルクと入力側の歯数を同じにして、平歯車の出力側を20歯から40歯にするとどうなるか',
-      opts: ['回転数は小さく、理想トルクは大きくなる', '両方小さくなる', '回転数は大きく、理想トルクは小さくなる'], ans: 0,
-      exp: '回転数は半分、損失を無視した理想トルクは2倍になる。',
-      ref: { label: '② 平歯車の速さとトルク', go: 'gear2' } },
-    { q: 'クランク・スライダでクランクの半径を大きくすると、スライダの往復する範囲はどうなるか',
-      opts: ['小さくなる', '同じ', '大きくなる'], ans: 2,
-      exp: 'クランクの回転中心から連結点までの距離が伸び、往復の幅が広がる。',
-      ref: { label: '④ リンクの実験', go: 'link', link: 'slider' } },
-    { q: '入力軸を回し続けても、押す部品が一定の位置にとどまる時間をつくりたい。何を変えるとよいか',
-      opts: ['カムを、従動節が一定位置にとどまる区間のある形に替える', 'カムを同じ形のまま速く回す', 'カムを同じ形のまま逆に回す'], ans: 0,
-      exp: 'カムの形で従動節の動き方が変わり、一定位置を保つ区間を設けられる。',
-      ref: { label: '⑤ カムの実験', go: 'cam' } }
-  ];
-
-  // コピー用の文章（振り返りの2欄だけ。小テストの結果は含めない）
-  function summaryText() {
-    var sm = state.summary;
-    return '【振り返り】生活の中の機構を説明しよう\n' +
-      '■試して分かったこと\n' + sm.learned + '\n' +
-      '■生活の中で使われる理由\n' + sm.reason + '\n';
-  }
+  // ⑦ まとめ課題：小テスト「機構の特徴を確かめよう」（選択式4問）と、振り返り「生活の中の機構を説明しよう」（2欄）、提出
+  // 問題・選択肢・解説・クラスコードはサーバー（src/Summary.js）の定義を受け取って使う
+  var SUMMARY_CFG = window.SUMMARY_CONFIG || { quiz: [], classCodes: [], textMax: 2000 };
+  var FINAL_QUIZ = SUMMARY_CFG.quiz;
+  var submitUi = null; // ⑦を表示している間だけ、提出欄の表示を更新する関数が入る
 
   // 小テストの1問分の表示
   function finalQuizItemHtml(i) {
@@ -986,11 +964,61 @@
     return s;
   }
 
+  // 提出する内容（サーバーに送る項目だけ）
+  function submitPayload() {
+    var sm = state.summary;
+    return { classCode: sm.classCode, number: sm.number, learned: sm.learned, reason: sm.reason, answers: sm.answers.slice() };
+  }
+  // 「提出した内容」と「いまの内容」を比べるための文字列
+  function submitSnapshot(p) {
+    return JSON.stringify([p.classCode, Sim.normalizeRosterNumber(p.number), p.learned, p.reason, p.answers]);
+  }
+
+  // 提出ボタンを押したとき：画面で確かめてからサーバーに送る
+  function doSubmit() {
+    var sub = state.summary.submit;
+    if (sub.sending) return;
+    var payload = submitPayload();
+    var check = Sim.checkSummaryInput(payload, SUMMARY_CFG);
+    if (!check.ok) {
+      sub.error = { message: '提出できません。次のところを確認してください。', errors: check.errors };
+      if (submitUi) submitUi();
+      return;
+    }
+    if (!(window.google && google.script && google.script.run)) {
+      sub.error = { message: '提出の機能につながっていません。先生に知らせてください。', errors: [] };
+      if (submitUi) submitUi();
+      return;
+    }
+    var snap = submitSnapshot(payload);
+    sub.sending = true; sub.error = null;
+    if (submitUi) submitUi();
+    google.script.run
+      .withSuccessHandler(function (res) {
+        sub.sending = false;
+        if (res && res.ok) {
+          sub.saved = { snapshot: snap, resubmitted: !!res.resubmitted, savedAt: res.savedAt };
+          sub.error = null;
+        } else {
+          sub.error = { message: (res && res.message) || '提出できませんでした。もう一度「提出する」を押してください。', errors: (res && res.errors) || [] };
+        }
+        if (submitUi) submitUi();
+      })
+      .withFailureHandler(function () {
+        sub.sending = false;
+        sub.error = { message: '提出できませんでした。通信の状態を確かめて、もう一度「提出する」を押してください。くり返し失敗するときは先生に知らせてください。', errors: [] };
+        if (submitUi) submitUi();
+      })
+      .submitSummary(payload);
+  }
+
   function renderSummary() {
     state.fromSummary = false;
     var sm = state.summary;
+    var classOpts = '<option value="">選んでください<\/option>';
+    SUMMARY_CFG.classCodes.forEach(function (c) { classOpts += '<option value="' + esc(c) + '">' + esc(c) + '<\/option>'; });
     var s = '<h2>⑦ まとめ課題<\/h2>' +
-      '<p class="warn">ここで選んだ答えや書いた内容は、このページを開いている間だけ残ります。<strong>ページを再読み込みしたり、タブを閉じたりすると消えます。<\/strong>振り返りを書き終えたら「まとめてコピー」を使い、先生が指定した提出先に貼り付けてください。<\/p>' +
+      '<p class="warn">ここで選んだ答えや書いた内容は、提出するまでは、このページを開いている間だけ残ります。<strong>ページを再読み込みしたり、タブを閉じたりすると、提出していない内容は消えます。<\/strong>書き終えたら、下の「提出する」で提出してください。<\/p>' +
       stepHtml(1, '小テスト「機構の特徴を確かめよう」',
         '<p class="note">答えを選んで「答え合わせ」を押そう。分からないときは「実験・観察に戻る」で確かめてから選び直せます。答えていない問題があっても、下の振り返りは書けます。<\/p>' +
         '<div data-k="fq"><\/div>' +
@@ -999,23 +1027,54 @@
       stepHtml(2, '振り返り「生活の中の機構を説明しよう」',
         '<div class="field"><label for="tLearned">試して分かったこと<\/label>' +
         '<p class="note">機構を一つ選び、どこを動かしたり変えたりして、どんな動きが見られたかを書こう。⑥の機構は、動かして観察したことを書いてもよい。<\/p>' +
-        '<textarea id="tLearned" data-f="learned"><\/textarea><\/div>' +
+        '<textarea id="tLearned" data-f="learned" maxlength="' + SUMMARY_CFG.textMax + '"><\/textarea><\/div>' +
         '<div class="field"><label for="tReason">生活の中で使われる理由<\/label>' +
         '<p class="note">身近な製品を一つ挙げ、どこにどんな機構が使われていて、その特徴がどんな役に立つかを書こう。<\/p>' +
         '<p class="formula">書き方の例：「［製品］では、［機構］を使って［どんな動き］を実現している。［機構の特徴］があるため、［製品で果たす役割］に役立つ。」<\/p>' +
         '<details class="hint"><summary>ヒント：記述例を見る<\/summary>' +
         '<p>「自転車では、チェーンとスプロケットを使って、ペダル側の回転を離れた後輪に伝えている。」<\/p><\/details>' +
-        '<textarea id="tReason" data-f="reason"><\/textarea><\/div>' +
-        '<div class="field"><label for="tAll">まとめてコピー（提出用）<\/label>' +
-        '<textarea id="tAll" class="copy-area" readonly><\/textarea>' +
-        '<div class="controls" style="margin-top:8px"><button type="button" class="btn primary" data-k="copy">まとめてコピー<\/button><\/div>' +
-        '<p class="note" data-k="copyMsg" aria-live="polite"><\/p><\/div>' +
-        '<p class="note">振り返りは先生が読んで確認します（自動の採点はありません）。氏名などの個人情報は書かないでください。<\/p>') +
+        '<textarea id="tReason" data-f="reason" maxlength="' + SUMMARY_CFG.textMax + '"><\/textarea><\/div>' +
+        '<p class="note">振り返りは先生が読んで確認します。<\/p>') +
+      stepHtml(3, '提出する',
+        '<p class="formula">学校のGoogleアカウントと名簿を照合して提出します。<\/p>' +
+        '<p class="note">提出には、小テスト4問すべての回答と、振り返り2欄の記入が必要です（正解の数は関係ありません）。提出したあとに直して、もう一度提出することもできます。<\/p>' +
+        '<div class="submit-row">' +
+        '<div class="field"><label for="selClass">クラスコード<\/label><select id="selClass">' + classOpts + '<\/select><\/div>' +
+        '<div class="field"><label for="inNumber">名簿番号<\/label><input id="inNumber" type="text" inputmode="numeric" autocomplete="off" maxlength="6"><\/div>' +
+        '<\/div>' +
+        '<button type="button" class="btn primary" data-k="submit">提出する<\/button>' +
+        '<div data-k="submitMsg" aria-live="polite"><\/div>' +
+        '<p class="note">まだ提出していない内容は、再読み込みやタブを閉じると消えます。<\/p>') +
       pagerHtml(['home', '← ホーム'], null);
     app.innerHTML = s;
 
     var q = function (k) { return app.querySelector('[data-k="' + k + '"]'); };
-    var all = app.querySelector('#tAll');
+    var sub = sm.submit;
+
+    // 提出欄の表示（送信中・提出済み・未提出の変更・エラー）を更新する
+    var drawSubmit = function () {
+      if (!app.contains(q('submit'))) return;
+      var btn = q('submit'), box = q('submitMsg'), h = '';
+      btn.disabled = !!sub.sending;
+      btn.textContent = sub.sending ? '送信しています…' : '提出する';
+      if (sub.sending) {
+        h = '<p class="feedback info">送信しています。そのまま待ってください。<\/p>';
+      } else if (sub.error) {
+        h = '<div class="feedback ng"><strong>' + esc(sub.error.message) + '<\/strong>' +
+          (sub.error.errors.length ? '<ul>' + sub.error.errors.map(function (e) { return '<li>' + esc(e) + '<\/li>'; }).join('') + '<\/ul>' : '') +
+          '書いた内容と答えは残っています。<\/div>';
+      }
+      if (!sub.sending && sub.saved) {
+        var same = sub.saved.snapshot === submitSnapshot(submitPayload());
+        if (same && !sub.error) {
+          h = '<p class="feedback ok"><strong>' + (sub.saved.resubmitted ? '再提出しました' : '提出しました') + '<\/strong>（' + esc(sub.saved.savedAt) + '）<\/p>';
+        } else if (!same) {
+          h += '<p class="alert">変更はまだ提出されていません。もう一度「提出する」を押すと、提出し直せます。（前回の提出：' + esc(sub.saved.savedAt) + '）<\/p>';
+        }
+      }
+      box.innerHTML = h;
+    };
+    submitUi = drawSubmit;
 
     // 小テストの表示を作り直す（振り返りの欄には触れない）
     var drawQuiz = function () {
@@ -1028,6 +1087,7 @@
           sm.answers[i] = Number(b.getAttribute('data-opt'));
           sm.results[i] = undefined; // 選び直したら、その問の判定はいったん消す
           drawQuiz();
+          drawSubmit();
         });
       });
       box.querySelectorAll('[data-ref]').forEach(function (b) {
@@ -1058,22 +1118,15 @@
 
     app.querySelectorAll('[data-f]').forEach(function (ta) {
       ta.value = sm[ta.getAttribute('data-f')];
-      ta.addEventListener('input', function () { sm[ta.getAttribute('data-f')] = ta.value; all.value = summaryText(); });
+      ta.addEventListener('input', function () { sm[ta.getAttribute('data-f')] = ta.value; drawSubmit(); });
     });
-    q('copy').addEventListener('click', function () {
-      var msg = q('copyMsg');
-      var done = function () { msg.textContent = 'コピーしました。提出先に貼り付けてください。'; };
-      var fallback = function () {
-        all.focus(); all.select();
-        try { if (document.execCommand('copy')) { done(); return; } } catch (e) { /* 下のメッセージを出す */ }
-        msg.textContent = 'うまくコピーできませんでした。上の欄の文字を長押し（または右クリック）して、コピーしてください。';
-      };
-      all.value = summaryText();
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(all.value).then(done, fallback);
-      } else { fallback(); }
-    });
-    all.value = summaryText();
+    var sel = app.querySelector('#selClass'), num = app.querySelector('#inNumber');
+    sel.value = sm.classCode;
+    num.value = sm.number;
+    sel.addEventListener('change', function () { sm.classCode = sel.value; drawSubmit(); });
+    num.addEventListener('input', function () { sm.number = num.value; drawSubmit(); });
+    q('submit').addEventListener('click', doSubmit);
+    drawSubmit();
   }
 
   // ---------- 画面の切り替え ----------
@@ -1081,6 +1134,7 @@
 
   function go(screen, params) {
     stopActive();
+    submitUi = null;
     state.screen = RENDER[screen] ? screen : 'home';
     state.params = params || {};
     RENDER[state.screen]();
