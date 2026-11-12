@@ -1,6 +1,7 @@
+<script>
 // ===== 計算・図形の処理（画面に依存しない純粋な処理） =====
-// このファイルは index.html の <script> 内に読み込まれる。
-// Node.js からも読み込んでテストできるよう、DOM や GAS の API は使わない。
+// このファイルは index.html に include される（GAS の決まりで、<script> タグごと読み込む）。
+// Node.js からも読み込んでテストできるよう、DOM や GAS の API は使わない（テストではタグを外して実行する）。
 // 角度は「度」。画面（SVG）の座標系に合わせ、時計回りを正とする。
 var Sim = (function () {
   'use strict';
@@ -262,3 +263,4 @@ var Sim = (function () {
 })();
 
 if (typeof module !== 'undefined') module.exports = Sim;
+</script>

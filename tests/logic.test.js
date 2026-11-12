@@ -6,8 +6,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-// src/logic.html は GAS では <script> 内に読み込まれる JS。Node では vm で評価する
-const code = fs.readFileSync(path.join(__dirname, '..', 'src', 'logic.html'), 'utf8');
+// src/logic.html は <script> タグで囲んだ JS。Node ではタグを外して vm で評価する
+const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'logic.html'), 'utf8');
+const m = /^\s*<script>([\s\S]*)<\/script>\s*$/.exec(html);
+assert.ok(m, 'src/logic.html は <script> 〜 </script> で囲まれている（GAS の include のため）');
+const code = m[1];
 const ctx = { module: { exports: {} } };
 vm.runInNewContext(code, ctx);
 const Sim = ctx.module.exports;
@@ -127,4 +130,15 @@ test('表示用の数値', () => {
   assert.equal(Sim.fmt(2), '2');
   assert.equal(Sim.fmt(1 / 3), '0.33');
   assert.equal(Sim.fmt(-0.0001), '0');
+});
+
+test('include するファイルが GAS で読み込める形になっている', () => {
+  // GAS の createHtmlOutputFromFile は HTML として読むため、JS・CSS はタグで囲む必要がある
+  const read = (n) => fs.readFileSync(path.join(__dirname, '..', 'src', n + '.html'), 'utf8');
+  for (const [n, tag] of [['logic', 'script'], ['app', 'script'], ['css', 'style']]) {
+    const s = read(n).trim();
+    assert.ok(s.startsWith(`<${tag}>`) && s.endsWith(`</${tag}>`), `${n}.html が <${tag}> で囲まれていない`);
+    const inner = s.slice(tag.length + 2, -(tag.length + 3));
+    assert.ok(!inner.includes('</'), `${n}.html の中に「</」がある（「<\\/」と書く）`);
+  }
 });
