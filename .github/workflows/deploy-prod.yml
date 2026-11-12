@@ -1,0 +1,58 @@
+# 手動実行で本番デプロイを更新する（生徒用URLはそのまま、中身だけ新しい版に差し替える）
+name: 本番デプロイ（手動）
+
+on:
+  workflow_dispatch:
+    inputs:
+      description:
+        description: "版の説明（例：v0.1 初版）"
+        required: true
+        default: "更新"
+
+concurrency:
+  group: gas-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: .clasp.json があるか確認
+        run: |
+          if [ ! -f .clasp.json ]; then
+            echo "::error::.clasp.json がありません。"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: clasp をインストール
+        run: npm install -g @google/clasp@2.4.2
+
+      - name: clasp の認証情報を配置（GitHub Secrets: CLASPRC_JSON）
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: |
+          if [ -z "$CLASPRC_JSON" ]; then
+            echo "::error::Secrets に CLASPRC_JSON が設定されていません。"
+            exit 1
+          fi
+          printf '%s' "$CLASPRC_JSON" > ~/.clasprc.json
+
+      - name: 最新のコードを GAS に反映（clasp push）
+        run: clasp push --force
+
+      - name: 本番デプロイを更新（GitHub Secrets: GAS_DEPLOYMENT_ID）
+        env:
+          DEPLOYMENT_ID: ${{ secrets.GAS_DEPLOYMENT_ID }}
+          DESCRIPTION: ${{ github.event.inputs.description }}
+        run: |
+          if [ -z "$DEPLOYMENT_ID" ]; then
+            echo "::error::Secrets に GAS_DEPLOYMENT_ID が設定されていません。GAS の「デプロイを管理」で本番用デプロイを作り、そのIDを登録してください。"
+            exit 1
+          fi
+          clasp deploy --deploymentId "$DEPLOYMENT_ID" --description "$DESCRIPTION"
