@@ -1,0 +1,48 @@
+# main へのマージ（push）時に、src/ の内容を GAS に反映する（テスト用URL /dev で確認できる状態になる）
+name: GASへ反映（テスト用 /dev）
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - ".clasp.json"
+      - ".github/workflows/deploy-dev.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: gas-deploy
+  cancel-in-progress: false
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: .clasp.json があるか確認
+        run: |
+          if [ ! -f .clasp.json ]; then
+            echo "::error::.clasp.json がありません。リポジトリ直下に scriptId と rootDir(src) を書いた .clasp.json を追加してください。"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: clasp をインストール
+        run: npm install -g @google/clasp@2.4.2
+
+      - name: clasp の認証情報を配置（GitHub Secrets: CLASPRC_JSON）
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: |
+          if [ -z "$CLASPRC_JSON" ]; then
+            echo "::error::Secrets に CLASPRC_JSON が設定されていません。"
+            exit 1
+          fi
+          printf '%s' "$CLASPRC_JSON" > ~/.clasprc.json
+
+      - name: GAS に反映（clasp push）
+        run: clasp push --force
