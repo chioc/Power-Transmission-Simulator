@@ -1,0 +1,1084 @@
+// ===== 画面の表示と操作 =====
+// 画面はこの1ページの中で切り替える。設定や記述はこのページを開いている間だけメモリに残る
+// （再読み込み・タブを閉じると消える。仕様書「4. データ構造」）。
+(function () {
+  'use strict';
+
+  var C = { input: '#2563eb', inputSoft: '#dbeafe', output: '#c2410c', outputSoft: '#ffedd5', other: '#64748b', otherSoft: '#e2e8f0', ink: '#334155' };
+  var SPEED = { normal: 360 * Sim.INPUT_RPM / 60, slow: 360 * Sim.INPUT_RPM / 60 / 4 }; // 度/秒
+
+  // ---------- 状態（このタブを開いている間だけ保持） ----------
+  var state = {
+    screen: 'home',
+    params: {},
+    gear: { inTeeth: 20, outTeeth: 40, idler: false },
+    link: { type: 'slider', size: 'small' },
+    cam: { type: 'A' },
+    sims: {},        // 機構ごとの角度・再生状態
+    predict: {},     // 予想の選択（画面の中で使うだけ。記録・送信はしない）
+    quiz: {},        // 確認問題の選択と結果
+    calc: { ratio: '', rpm: '', result: null, key: '' },
+    fromSummary: false,
+    summary: { task: '', mech: '', reason: '', learned: '', adjust: '' }
+  };
+
+  // ---------- 小さな道具 ----------
+
+  // HTML に入れる文字を安全にする
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  // 円周上の点（SVG の角度：時計回りが正）
+  function pt(cx, cy, r, a) { return [cx + r * Math.cos(Sim.rad(a)), cy + r * Math.sin(Sim.rad(a))]; }
+  function p2s(p) { return p[0].toFixed(1) + ' ' + p[1].toFixed(1); }
+  // 回転の向きを示す弧の矢印
+  function arcArrow(cx, cy, r, a0, a1, cw, color, uid) {
+    var s = cw ? a0 : a1, e = cw ? a1 : a0;
+    return '<path d="M' + p2s(pt(cx, cy, r, s)) + 'A' + r + ' ' + r + ' 0 0 ' + (cw ? 1 : 0) + ' ' + p2s(pt(cx, cy, r, e)) +
+      '" fill="none" stroke="' + color + '" stroke-width="3" marker-end="url(#ah-' + markerKey(color) + '-' + uid + ')"/>';
+  }
+  function markerKey(color) { return color === C.input ? 'in' : color === C.output ? 'out' : 'oth'; }
+  // 矢印の先（色ごと）
+  function markerDefs(uid) {
+    var mk = function (k, color) {
+      return '<marker id="ah-' + k + '-' + uid + '" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">' +
+        '<path d="M0 0L10 5L0 10z" fill="' + color + '"/></marker>';
+    };
+    return '<defs>' + mk('in', C.input) + mk('out', C.output) + mk('oth', C.other) + '</defs>';
+  }
+  function text(x, y, str, color, opt) {
+    opt = opt || {};
+    return '<text x="' + x + '" y="' + y + '" fill="' + (color || C.ink) + '" font-size="' + (opt.size || 14) + '" font-weight="' + (opt.weight || 700) +
+      '" text-anchor="' + (opt.anchor || 'middle') + '">' + esc(str) + '</text>';
+  }
+  function dirName(cw) { return cw ? '時計回り' : '反時計回り'; }
+  function valueBox(label, value, small) {
+    return '<div class="value"><dt>' + label + '</dt><dd>' + value + (small ? '<small>' + small + '</small>' : '') + '</dd></div>';
+  }
+  function turns(angle) { return Sim.fmt(angle / 360, 2); }
+
+  // ---------- シミュレーター（再生・低速・手動・リセット） ----------
+  var uidCounter = 0;
+  var active = null;
+
+  // 機構の図と操作部を host に表示する。scene は機構ごとの描き方
+  function mountSim(host, scene) {
+    var st = state.sims[scene.id] || (state.sims[scene.id] = { angle: 0, playing: false, slow: false, dir: 1 });
+    st.playing = false;
+    var uid = 's' + (++uidCounter);
+    var range = scene.mode === 'rack' ? [-Math.floor(Sim.RACK.maxAngle), Math.floor(Sim.RACK.maxAngle)] : [0, scene.mode === 'turn720' ? 720 : 360];
+    host.innerHTML =
+      '<div class="sim">' +
+      '<svg class="sim-svg" viewBox="' + scene.viewBox + '" role="img" aria-label="' + esc(scene.label) + '">' + markerDefs(uid) + scene.svg(uid) + '</svg>' +
+      '<div class="controls">' +
+      '<button type="button" class="btn primary" data-act="play"></button>' +
+      '<button type="button" class="btn" data-act="slow"></button>' +
+      (scene.mode === 'rack' ? '<button type="button" class="btn" data-act="dir"></button>' : '') +
+      '<button type="button" class="btn" data-act="reset">はじめの位置に戻す</button>' +
+      '</div>' +
+      '<label class="manual"><span data-k="manualLabel"></span>' +
+      '<input type="range" min="' + range[0] + '" max="' + range[1] + '" step="1" data-k="manual"></label>' +
+      '<p class="speed-note" data-k="speed"></p>' +
+      '<div class="sim-info" aria-live="polite" data-k="info"></div>' +
+      '</div>';
+    var root = host.firstChild;
+    var svg = root.querySelector('svg');
+    var update = scene.bind(svg);
+    var q = function (k) { return root.querySelector('[data-k="' + k + '"]'); };
+    var btnPlay = root.querySelector('[data-act="play"]');
+    var btnSlow = root.querySelector('[data-act="slow"]');
+    var btnDir = root.querySelector('[data-act="dir"]');
+    var slider = q('manual'), info = q('info'), lastInfo = '';
+
+    var sim = {
+      st: st, scene: scene,
+      refresh: function () {
+        if (scene.mode === 'rack') st.angle = Sim.rackState(st.angle).angle;
+        update(st.angle);
+        btnPlay.textContent = st.playing ? '⏸ 一時停止' : '▶ 再生';
+        btnSlow.textContent = st.slow ? '低速：オン' : '低速：オフ';
+        btnSlow.setAttribute('aria-pressed', st.slow ? 'true' : 'false');
+        if (btnDir) btnDir.textContent = '回す向き：' + dirName(st.dir > 0);
+        var sv = scene.mode === 'rack' ? st.angle : Sim.mod(st.angle, range[1]);
+        if (Math.abs(Number(slider.value) - sv) >= 0.5) slider.value = String(Math.round(sv));
+        q('manualLabel').textContent = '入力軸を手で回す（' + (scene.mode === 'rack' ? '回した角度' : '角度') + '：' + Math.round(sv) + '°）';
+        q('speed').textContent = st.slow
+          ? '観察用の再生速度：低速（ふつうの1/4）。速さを変えても、計算上の回転数や速度伝達比は変わりません。'
+          : '観察用の再生速度：ふつう（入力が1秒に1回転）。計算上の入力は ' + Sim.INPUT_RPM + ' 回転/分です。';
+        var html = scene.info(st.angle, st) || '';
+        if (html !== lastInfo) { info.innerHTML = html; lastInfo = html; }
+      }
+    };
+    btnPlay.addEventListener('click', function () {
+      if (!st.playing && scene.mode === 'rack') {
+        var rs = Sim.rackState(st.angle);
+        if (rs.atEnd && Math.sign(rs.angle) === st.dir) { st.flash = true; sim.refresh(); return; }
+      }
+      st.flash = false;
+      st.playing = !st.playing; sim.refresh();
+    });
+    btnSlow.addEventListener('click', function () { st.slow = !st.slow; sim.refresh(); });
+    if (btnDir) btnDir.addEventListener('click', function () { st.dir = -st.dir; st.flash = false; sim.refresh(); });
+    root.querySelector('[data-act="reset"]').addEventListener('click', function () {
+      st.playing = false; st.angle = 0; st.flash = false; sim.refresh();
+    });
+    slider.addEventListener('input', function () {
+      st.playing = false; st.flash = false;
+      var v = Number(slider.value);
+      // スライダーの端は、ラックの端（整数でない角度）に合わせる
+      if (scene.mode === 'rack' && Math.abs(v) >= range[1]) v = Math.sign(v) * Sim.RACK.maxAngle;
+      st.angle = v;
+      sim.refresh();
+    });
+    active = sim;
+    sim.refresh();
+    return sim;
+  }
+
+  // 再生中の機構を少しずつ回す
+  var lastT = null;
+  function tick(t) {
+    if (active && active.st.playing) {
+      var dt = lastT === null ? 0 : Math.min(0.1, (t - lastT) / 1000);
+      var st = active.st;
+      st.angle += st.dir * (st.slow ? SPEED.slow : SPEED.normal) * dt;
+      if (active.scene.mode === 'rack') {
+        var rs = Sim.rackState(st.angle);
+        st.angle = rs.angle;
+        if (rs.atEnd) { st.playing = false; st.flash = true; }
+      }
+      active.refresh();
+    }
+    lastT = t;
+    requestAnimationFrame(tick);
+  }
+
+  function stopActive() { if (active) { active.st.playing = false; active = null; } }
+
+  // ---------- 機構の図（シーン） ----------
+
+  // 平歯車（2枚、または中間歯車を入れて3枚）
+  function gearScene(g, id) {
+    var m = 3.5, W = 520, H = 290, cy = 135;
+    var list = [{ z: g.inTeeth, role: 'input' }];
+    if (g.idler) list.push({ z: Sim.IDLER_TEETH, role: 'idler' });
+    list.push({ z: g.outTeeth, role: 'output' });
+    var sumD = 0;
+    list.forEach(function (x) { x.r = m * x.z / 2; x.pitch = 360 / x.z; sumD += 2 * x.r; });
+    var x0 = (W - sumD) / 2, maxR = 0;
+    list.forEach(function (x) { maxR = Math.max(maxR, x.r); });
+    list.forEach(function (x, k) {
+      x.cx = k === 0 ? x0 + x.r : list[k - 1].cx + list[k - 1].r + x.r;
+      if (k === 0) { x.o = 0; }
+      else {
+        // 前の歯車の右側が「歯」か「すき間」かを調べ、反対になるように向きをそろえる
+        var prev = list[k - 1];
+        var f = Sim.mod(-prev.o / prev.pitch, 1);
+        var fk = Sim.mod(f + 0.5, 1);
+        x.o = 180 - fk * x.pitch;
+      }
+      x.cw = k % 2 === 0;
+      x.color = x.role === 'input' ? C.input : x.role === 'output' ? C.output : C.other;
+      x.soft = x.role === 'input' ? C.inputSoft : x.role === 'output' ? C.outputSoft : C.otherSoft;
+      x.name = x.role === 'input' ? '入力' : x.role === 'output' ? '出力' : '中間歯車';
+    });
+    return {
+      id: id, mode: 'turn720', viewBox: '0 0 ' + W + ' ' + H,
+      label: '平歯車がかみ合って回る図。入力は青、出力はオレンジ',
+      svg: function (uid) {
+        var s = '', ly = cy + maxR + m + 28;
+        list.forEach(function (x, k) {
+          s += '<g transform="translate(' + x.cx.toFixed(1) + ' ' + cy + ')">' +
+            '<g data-gear="' + k + '">' +
+            '<path d="' + Sim.gearPath(x.z, m) + '" fill="' + x.soft + '" stroke="' + x.color + '" stroke-width="2"/>' +
+            '<line x1="0" y1="0" x2="' + (x.r * 0.7).toFixed(1) + '" y2="0" stroke="' + x.color + '" stroke-width="4"/>' +
+            '<circle cx="' + (x.r * 0.7).toFixed(1) + '" cy="0" r="6" fill="#fff" stroke="' + x.color + '" stroke-width="3"/>' +
+            '</g><circle r="7" fill="' + x.color + '"/></g>';
+          s += arcArrow(x.cx, cy, x.r + m + 12, -130, -50, x.cw, x.color, uid);
+          s += text(x.cx, ly, x.name, x.color);
+          s += text(x.cx, ly + 18, x.z + '歯', x.color, { weight: 400 });
+        });
+        return s;
+      },
+      bind: function (svg) {
+        var els = list.map(function (_, k) { return svg.querySelector('[data-gear="' + k + '"]'); });
+        return function (angle) {
+          var a = Sim.gearAngles(g, angle);
+          var angs = g.idler ? [a.input, a.idler, a.output] : [a.input, a.output];
+          els.forEach(function (el, k) { el.setAttribute('transform', 'rotate(' + (list[k].o + angs[k]).toFixed(2) + ')'); });
+        };
+      },
+      info: function (angle) {
+        var a = Sim.gearAngles(g, angle);
+        var out = '<dl class="values">' +
+          valueBox('<span class="tag-in">入力</span>の回転', turns(a.input) + ' 回転', dirName(true)) +
+          valueBox('<span class="tag-out">出力</span>の回転', turns(Math.abs(a.output)) + ' 回転', dirName(g.idler) + '（入力と' + (g.idler ? '同じ向き' : '逆向き') + '）') +
+          '</dl>';
+        return out;
+      }
+    };
+  }
+
+  // クランク・スライダ／クランク・揺動レバー
+  function linkScene(type, size) {
+    if (type === 'slider') {
+      var r = Sim.LINK.slider.radii[size], rod = Sim.LINK.slider.rod, ax = 110, ay = 140, bw = 50, bh = 36;
+      return {
+        id: 'link', mode: 'turn360', viewBox: '50 40 360 220',
+        label: 'クランク・スライダの図。クランクは青、スライダはオレンジ',
+        svg: function (uid) {
+          var s = '';
+          var xmin = ax + rod - r, xmax = ax + rod + r;
+          // 案内（レール）と目盛り
+          s += '<rect x="' + (ax + rod - 80) + '" y="' + (ay - bh / 2 - 6) + '" width="160" height="4" fill="#94a3b8"/>';
+          s += '<rect x="' + (ax + rod - 80) + '" y="' + (ay + bh / 2 + 2) + '" width="160" height="4" fill="#94a3b8"/>';
+          for (var mm = -60; mm <= 60; mm += 10) {
+            var tx = ax + rod + mm;
+            s += '<line x1="' + tx + '" y1="' + (ay + 30) + '" x2="' + tx + '" y2="' + (ay + (mm % 50 === 0 ? 44 : 38)) + '" stroke="#94a3b8" stroke-width="1.5"/>';
+          }
+          s += text(ax + rod, ay + 62, '目盛り：10mm ごと', C.other, { weight: 400, size: 12 });
+          // 動く範囲（両端の位置）
+          [xmin, xmax].forEach(function (x) {
+            s += '<rect x="' + (x - bw / 2) + '" y="' + (ay - bh / 2) + '" width="' + bw + '" height="' + bh + '" fill="none" stroke="' + C.output + '" stroke-dasharray="5 4" stroke-width="1.5"/>';
+          });
+          s += '<path d="M' + (xmin) + ' ' + (ay + 84) + 'H' + xmax + '" stroke="' + C.output + '" stroke-width="3" marker-start="url(#ah-out-' + uid + ')" marker-end="url(#ah-out-' + uid + ')"/>';
+          s += text((xmin + xmax) / 2, ay + 106, 'スライダの動く範囲：' + (2 * r) + 'mm（往復）', C.output, { size: 13 });
+          // クランクの回る範囲
+          s += '<circle cx="' + ax + '" cy="' + ay + '" r="' + r + '" fill="none" stroke="' + C.input + '" stroke-dasharray="4 4"/>';
+          s += arcArrow(ax, ay, r + 16, -130, -50, true, C.input, uid);
+          s += '<line data-k="rod" stroke="#475569" stroke-width="8" stroke-linecap="round"/>';
+          s += '<rect data-k="block" width="' + bw + '" height="' + bh + '" y="' + (ay - bh / 2) + '" rx="4" fill="' + C.outputSoft + '" stroke="' + C.output + '" stroke-width="3"/>';
+          s += '<line data-k="crank" x1="' + ax + '" y1="' + ay + '" stroke="' + C.input + '" stroke-width="10" stroke-linecap="round"/>';
+          s += '<circle cx="' + ax + '" cy="' + ay + '" r="8" fill="' + C.input + '"/>';
+          s += '<circle data-k="pin" r="6" fill="#fff" stroke="#475569" stroke-width="3"/>';
+          s += '<circle data-k="spin" r="6" fill="#fff" stroke="#475569" stroke-width="3"/>';
+          s += text(ax, ay - r - 34, '入力：クランク', C.input);
+          s += text(ax + rod, ay - bh / 2 - 18, '出力：スライダ', C.output);
+          return s;
+        },
+        bind: function (svg) {
+          var q = function (k) { return svg.querySelector('[data-k="' + k + '"]'); };
+          var crank = q('crank'), rodEl = q('rod'), block = q('block'), pin = q('pin'), spin = q('spin');
+          return function (angle) {
+            var p = Sim.crankSlider(r, rod, angle);
+            var px = ax + p.pin.x, py = ay + p.pin.y, sx = ax + p.slider.x;
+            crank.setAttribute('x2', px); crank.setAttribute('y2', py);
+            rodEl.setAttribute('x1', px); rodEl.setAttribute('y1', py); rodEl.setAttribute('x2', sx); rodEl.setAttribute('y2', ay);
+            block.setAttribute('x', sx - bw / 2);
+            pin.setAttribute('cx', px); pin.setAttribute('cy', py);
+            spin.setAttribute('cx', sx); spin.setAttribute('cy', ay);
+          };
+        },
+        info: function (angle) {
+          var p = Sim.crankSlider(r, rod, angle);
+          var pos = p.slider.x - (rod - r); // 左端からの位置
+          return '<dl class="values">' +
+            valueBox('<span class="tag-in">入力</span>：クランクの角度', Math.round(Sim.mod(angle, 360)) + '°', 'クランク半径：' + r + 'mm（' + (size === 'small' ? '小' : '大') + '）') +
+            valueBox('<span class="tag-out">出力</span>：スライダの位置', Sim.fmt(pos, 0) + ' mm', '左はしから。動く範囲は ' + (2 * r) + 'mm') +
+            '</dl>';
+        }
+      };
+    }
+    // クランク・揺動レバー
+    var d = Sim.LINK.rocker, a = d.radii[size], Ax = 150, Ay = 195, Dx = Ax + d.ground;
+    var rg = Sim.linkRange('rocker', size);
+    return {
+      id: 'link', mode: 'turn360', viewBox: '60 40 400 230',
+      label: 'クランク・揺動レバーの図。クランクは青、レバーはオレンジ',
+      svg: function (uid) {
+        var s = '';
+        // 固定された軸（支点）
+        [Ax, Dx].forEach(function (x) {
+          s += '<path d="M' + (x - 14) + ' ' + (Ay + 22) + 'L' + x + ' ' + Ay + 'L' + (x + 14) + ' ' + (Ay + 22) + 'Z" fill="#cbd5e1" stroke="#94a3b8"/>';
+        });
+        s += '<line x1="' + (Ax - 30) + '" y1="' + (Ay + 22) + '" x2="' + (Dx + 30) + '" y2="' + (Ay + 22) + '" stroke="#94a3b8" stroke-width="3"/>';
+        // 揺動の範囲
+        var m0 = rg.min - 90, m1 = rg.max - 90, R = d.lever;
+        [m0, m1].forEach(function (ang) {
+          var p = pt(Dx, Ay, R, ang);
+          s += '<line x1="' + Dx + '" y1="' + Ay + '" x2="' + p[0].toFixed(1) + '" y2="' + p[1].toFixed(1) + '" stroke="' + C.output + '" stroke-dasharray="5 4" stroke-width="1.5"/>';
+        });
+        s += '<path d="M' + p2s(pt(Dx, Ay, R + 18, m0)) + 'A' + (R + 18) + ' ' + (R + 18) + ' 0 0 1 ' + p2s(pt(Dx, Ay, R + 18, m1)) +
+          '" fill="none" stroke="' + C.output + '" stroke-width="3" marker-start="url(#ah-out-' + uid + ')" marker-end="url(#ah-out-' + uid + ')"/>';
+        s += '<circle cx="' + Ax + '" cy="' + Ay + '" r="' + a + '" fill="none" stroke="' + C.input + '" stroke-dasharray="4 4"/>';
+        s += arcArrow(Ax, Ay, a + 16, -150, -70, true, C.input, uid);
+        s += '<line data-k="cpl" stroke="#475569" stroke-width="8" stroke-linecap="round"/>';
+        s += '<line data-k="lever" x1="' + Dx + '" y1="' + Ay + '" stroke="' + C.output + '" stroke-width="10" stroke-linecap="round"/>';
+        s += '<line data-k="crank" x1="' + Ax + '" y1="' + Ay + '" stroke="' + C.input + '" stroke-width="10" stroke-linecap="round"/>';
+        s += '<circle cx="' + Ax + '" cy="' + Ay + '" r="8" fill="' + C.input + '"/>';
+        s += '<circle cx="' + Dx + '" cy="' + Ay + '" r="8" fill="' + C.output + '"/>';
+        s += '<circle data-k="b" r="6" fill="#fff" stroke="#475569" stroke-width="3"/>';
+        s += '<circle data-k="c" r="6" fill="#fff" stroke="#475569" stroke-width="3"/>';
+        s += text(Ax, Ay + 48, '入力：クランク', C.input);
+        s += text(Dx + 20, Ay + 48, '出力：レバー', C.output);
+        s += text(Dx - 20, Ay - R - 34, '揺動の範囲：約' + Math.round(rg.span) + '°', C.output, { size: 13 });
+        return s;
+      },
+      bind: function (svg) {
+        var q = function (k) { return svg.querySelector('[data-k="' + k + '"]'); };
+        var crank = q('crank'), cpl = q('cpl'), lever = q('lever'), b = q('b'), c = q('c');
+        return function (angle) {
+          var p = Sim.crankRocker(a, d, angle);
+          var bx = Ax + p.pin.x, by = Ay + p.pin.y, cx = Ax + p.tip.x, cyy = Ay + p.tip.y;
+          crank.setAttribute('x2', bx); crank.setAttribute('y2', by);
+          cpl.setAttribute('x1', bx); cpl.setAttribute('y1', by); cpl.setAttribute('x2', cx); cpl.setAttribute('y2', cyy);
+          lever.setAttribute('x2', cx); lever.setAttribute('y2', cyy);
+          b.setAttribute('cx', bx); b.setAttribute('cy', by);
+          c.setAttribute('cx', cx); c.setAttribute('cy', cyy);
+        };
+      },
+      info: function (angle) {
+        var p = Sim.crankRocker(a, d, angle);
+        var tilt = p.leverAngle - (rg.min + rg.max) / 2;
+        return '<dl class="values">' +
+          valueBox('<span class="tag-in">入力</span>：クランクの角度', Math.round(Sim.mod(angle, 360)) + '°', 'クランク半径：' + a + 'mm（' + (size === 'small' ? '小' : '大') + '）') +
+          valueBox('<span class="tag-out">出力</span>：レバーの傾き', (tilt >= 0 ? '右へ ' : '左へ ') + Math.abs(Math.round(tilt)) + '°', '中央から。揺動の範囲は約 ' + Math.round(rg.span) + '°') +
+          '</dl>';
+      }
+    };
+  }
+
+  // カム（形A・形B）とグラフ
+  function camScene(type) {
+    var W = 520, H = 300, cx = 120, cy = 200, base = Sim.CAM.base, L = Sim.CAM.lift;
+    var gx = 250, gy = 230, gw = 250, gh = 90, sc = gh / L;
+    var curve = function (t) {
+      var d = '';
+      for (var a = 0; a <= 360; a += 3) d += (a ? 'L' : 'M') + (gx + gw * a / 360).toFixed(1) + ' ' + (gy - Sim.camLift(t, a) * sc).toFixed(1);
+      return d;
+    };
+    var label = type === 'A' ? '形A' : '形B';
+    return {
+      id: 'cam', mode: 'turn360', viewBox: '0 0 ' + W + ' ' + H,
+      label: 'カムと従動節の図、および入力角度と従動節の位置のグラフ',
+      svg: function (uid) {
+        var s = '';
+        // 従動節の案内
+        s += '<rect x="' + (cx - 16) + '" y="40" width="6" height="40" fill="#94a3b8"/><rect x="' + (cx + 10) + '" y="40" width="6" height="40" fill="#94a3b8"/>';
+        s += '<g data-k="fol"><rect x="' + (cx - 8) + '" y="' + (cy - base - 110) + '" width="16" height="110" fill="' + C.outputSoft + '" stroke="' + C.output + '" stroke-width="3"/>' +
+          '<path d="M' + (cx - 8) + ' ' + (cy - base) + 'L' + cx + ' ' + (cy - base + 0.1) + 'L' + (cx + 8) + ' ' + (cy - base) + '" fill="none" stroke="' + C.output + '" stroke-width="3"/></g>';
+        s += '<g transform="translate(' + cx + ' ' + cy + ')"><g data-k="cam"><path d="' + Sim.camPath(type) + '" fill="' + C.inputSoft + '" stroke="' + C.input + '" stroke-width="3"/>' +
+          '<line x1="0" y1="0" x2="' + (base - 10) + '" y2="0" stroke="' + C.input + '" stroke-width="3"/></g><circle r="7" fill="' + C.input + '"/></g>';
+        s += arcArrow(cx, cy, base + L + 14, 150, 230, true, C.input, uid);
+        s += text(cx, cy + base + L + 14, '入力：カム（' + label + '）', C.input);
+        s += text(cx + 22, 30, '出力：従動節', C.output, { anchor: 'start' });
+        s += '<line data-k="lvl" x1="' + (cx + 12) + '" x2="' + gx + '" stroke="' + C.output + '" stroke-dasharray="3 4" stroke-width="1.5"/>';
+        // グラフ
+        s += '<rect x="' + gx + '" y="' + (gy - gh - 10) + '" width="' + gw + '" height="' + (gh + 10) + '" fill="#f8fafc" stroke="#cbd5e1"/>';
+        for (var a = 0; a <= 360; a += 90) {
+          var x = gx + gw * a / 360;
+          s += '<line x1="' + x + '" y1="' + (gy - gh - 10) + '" x2="' + x + '" y2="' + gy + '" stroke="#e2e8f0"/>' + text(x, gy + 18, a + '°', C.other, { weight: 400, size: 12 });
+        }
+        s += '<path d="' + curve(type === 'A' ? 'B' : 'A') + '" fill="none" stroke="#94a3b8" stroke-width="2" stroke-dasharray="5 4"/>';
+        s += '<path d="' + curve(type) + '" fill="none" stroke="' + C.output + '" stroke-width="3.5"/>';
+        s += '<line data-k="cur" y1="' + (gy - gh - 10) + '" y2="' + gy + '" stroke="' + C.input + '" stroke-width="2"/>';
+        s += '<circle data-k="dot" r="6" fill="' + C.output + '"/>';
+        s += text(gx + gw / 2, gy + 38, '入力の角度（カムの回転）', C.input, { size: 13 });
+        s += text(gx, gy - gh - 18, '従動節の位置（太線：' + label + '、点線：もう一方の形）', C.output, { size: 12, anchor: 'start' });
+        return s;
+      },
+      bind: function (svg) {
+        var q = function (k) { return svg.querySelector('[data-k="' + k + '"]'); };
+        var camEl = q('cam'), fol = q('fol'), cur = q('cur'), dot = q('dot'), lvl = q('lvl');
+        return function (angle) {
+          var lift = Sim.camLift(type, angle), t = Sim.mod(angle, 360);
+          camEl.setAttribute('transform', 'rotate(' + angle.toFixed(2) + ')');
+          fol.setAttribute('transform', 'translate(0 ' + (-lift).toFixed(2) + ')');
+          var x = gx + gw * t / 360, y = gy - lift * sc;
+          cur.setAttribute('x1', x); cur.setAttribute('x2', x);
+          dot.setAttribute('cx', x); dot.setAttribute('cy', y);
+          lvl.setAttribute('y1', cy - base - lift); lvl.setAttribute('y2', y);
+        };
+      },
+      info: function (angle) {
+        var lift = Sim.camLift(type, angle);
+        var dl = Sim.camLift(type, angle + 2) - Sim.camLift(type, angle - 2);
+        var now = Math.abs(dl) < 1e-6 ? '同じ位置にとどまっている' : dl > 0 ? '上がっている' : '下がっている';
+        return '<dl class="values">' +
+          valueBox('<span class="tag-in">入力</span>：カムの角度', Math.round(Sim.mod(angle, 360)) + '°', 'カムの形：' + label) +
+          valueBox('<span class="tag-out">出力</span>：従動節の位置', Sim.fmt(lift, 0) + ' mm', 'いちばん下から。いまは「' + now + '」') +
+          '</dl>';
+      }
+    };
+  }
+
+  // 傘歯車
+  function bevelScene() {
+    var W = 520, H = 300, ix = 250, iy = 200, R = 60, ox = 310, oy = 140, thin = 16;
+    var ticks = 16;
+    return {
+      id: 'bevel', mode: 'turn720', viewBox: '0 0 ' + W + ' ' + H,
+      label: '傘歯車の図。横向きの入力軸と縦向きの出力軸が直角に交わる',
+      svg: function (uid) {
+        var s = '';
+        s += '<line x1="' + ix + '" y1="' + iy + '" x2="' + (ox + 50) + '" y2="' + iy + '" stroke="#94a3b8" stroke-dasharray="6 5"/>';
+        s += '<line x1="' + ox + '" y1="' + oy + '" x2="' + ox + '" y2="' + (iy + 50) + '" stroke="#94a3b8" stroke-dasharray="6 5"/>';
+        s += '<path d="M' + (ox - 16) + ' ' + iy + 'V' + (iy - 16) + 'H' + ox + '" fill="none" stroke="#0f172a" stroke-width="2"/>';
+        s += text(ox + 34, iy + 30, '90°（直角）', '#0f172a', { size: 13 });
+        s += '<line x1="40" y1="' + iy + '" x2="' + ix + '" y2="' + iy + '" stroke="' + C.input + '" stroke-width="10"/>';
+        s += '<line x1="' + ox + '" y1="20" x2="' + ox + '" y2="' + oy + '" stroke="' + C.output + '" stroke-width="10"/>';
+        s += '<ellipse cx="' + ix + '" cy="' + iy + '" rx="' + thin + '" ry="' + R + '" fill="' + C.inputSoft + '" stroke="' + C.input + '" stroke-width="3"/>';
+        s += '<ellipse cx="' + ox + '" cy="' + oy + '" rx="' + R + '" ry="' + thin + '" fill="' + C.outputSoft + '" stroke="' + C.output + '" stroke-width="3"/>';
+        s += '<g data-k="ti"></g><g data-k="to"></g>';
+        s += '<path d="M90 ' + (iy - 22) + 'A10 22 0 0 1 90 ' + (iy + 22) + '" fill="none" stroke="' + C.input + '" stroke-width="3" marker-end="url(#ah-in-' + uid + ')"/>';
+        s += '<path d="M' + (ox - 22) + ' 50A22 10 0 0 0 ' + (ox + 22) + ' 50" fill="none" stroke="' + C.output + '" stroke-width="3" marker-end="url(#ah-out-' + uid + ')"/>';
+        s += text(110, iy + 50, '入力軸（横向き）', C.input);
+        s += text(ox + 80, 40, '出力軸（縦向き）', C.output);
+        return s;
+      },
+      bind: function (svg) {
+        var ti = svg.querySelector('[data-k="ti"]'), to = svg.querySelector('[data-k="to"]');
+        var draw = function (el, ang, f, color) {
+          var s = '';
+          for (var k = 0; k < ticks; k++) {
+            var ph = Sim.rad(ang + k * 360 / ticks);
+            var p = f(ph);
+            s += '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="' + (k === 0 ? 6 : 3.5) + '" fill="' + (k === 0 ? '#fff' : color) +
+              '" stroke="' + color + '" stroke-width="2" opacity="' + (p[2] ? 1 : 0.3) + '"/>';
+          }
+          el.innerHTML = s;
+        };
+        return function (angle) {
+          draw(ti, angle, function (ph) { return [ix + thin * Math.sin(ph), iy - R * Math.cos(ph), Math.sin(ph) >= 0]; }, C.input);
+          draw(to, angle, function (ph) { return [ox - R * Math.cos(ph), oy + thin * Math.sin(ph), Math.sin(ph) >= 0]; }, C.output);
+        };
+      },
+      info: function (angle) {
+        return '<dl class="values">' + valueBox('<span class="tag-in">入力</span>の回転', turns(angle) + ' 回転', '横向きの軸') +
+          valueBox('<span class="tag-out">出力</span>の回転', turns(angle) + ' 回転', '縦向きの軸（歯数が同じなので同じ回転数）') + '</dl>';
+      }
+    };
+  }
+
+  // ウォームギア
+  function wormScene() {
+    var W = 520, H = 290, Z = 20, m = 5, wr = m * Z / 2, wx = 300, wy = 105;
+    var p = Math.PI * m, ay = wy + wr + 14, x0 = 200, x1 = 400, hr = 18;
+    return {
+      id: 'worm', mode: 'turn720', viewBox: '0 0 ' + W + ' ' + H,
+      label: 'ウォームギアの図。ウォームが入力、ウォームホイールが出力',
+      svg: function (uid) {
+        var s = '<clipPath id="wc-' + uid + '"><rect x="' + x0 + '" y="' + (ay - hr) + '" width="' + (x1 - x0) + '" height="' + (2 * hr) + '"/></clipPath>';
+        s += '<g transform="translate(' + wx + ' ' + wy + ')"><g data-k="wheel"><path d="' + Sim.gearPath(Z, m) + '" fill="' + C.outputSoft + '" stroke="' + C.output + '" stroke-width="2"/>' +
+          '<line x1="0" y1="0" x2="' + (wr * 0.7) + '" y2="0" stroke="' + C.output + '" stroke-width="4"/><circle cx="' + (wr * 0.7) + '" r="6" fill="#fff" stroke="' + C.output + '" stroke-width="3"/></g>' +
+          '<circle r="7" fill="' + C.output + '"/></g>';
+        s += '<line x1="120" y1="' + ay + '" x2="' + (x1 + 30) + '" y2="' + ay + '" stroke="' + C.input + '" stroke-width="8"/>';
+        s += '<rect x="' + x0 + '" y="' + (ay - hr) + '" width="' + (x1 - x0) + '" height="' + (2 * hr) + '" rx="6" fill="' + C.inputSoft + '" stroke="' + C.input + '" stroke-width="3"/>';
+        s += '<g clip-path="url(#wc-' + uid + ')"><g data-k="thread"></g></g>';
+        s += '<ellipse cx="150" cy="' + ay + '" rx="8" ry="24" fill="#fff" stroke="' + C.input + '" stroke-width="3"/><circle data-k="hd" r="5" fill="' + C.input + '"/>';
+        s += arcArrow(wx, wy, wr + m + 12, 200, 250, false, C.output, uid);
+        s += text(160, ay + 50, '入力：ウォーム（1条）', C.input);
+        s += text(wx + wr + 20, wy - wr + 6, '出力：ウォームホイール（' + Z + '歯）', C.output, { anchor: 'start', size: 13 });
+        return s;
+      },
+      bind: function (svg) {
+        var wheel = svg.querySelector('[data-k="wheel"]'), th = svg.querySelector('[data-k="thread"]'), hd = svg.querySelector('[data-k="hd"]');
+        return function (angle) {
+          // ウォーム1回転でねじ山が1ピッチ進み、ホイールは1歯分（360/Z 度）回る
+          var shift = Sim.mod(angle / 360 * p, p), s = '';
+          for (var x = x0 - p; x < x1 + p; x += p) {
+            var xx = x + shift + p / 2;
+            s += '<line x1="' + (xx - 5).toFixed(1) + '" y1="' + (ay - hr) + '" x2="' + (xx + 5).toFixed(1) + '" y2="' + (ay + hr) + '" stroke="' + C.input + '" stroke-width="5"/>';
+          }
+          th.innerHTML = s;
+          wheel.setAttribute('transform', 'rotate(' + (90 + 180 / Z - angle / Z).toFixed(2) + ')');
+          var ph = Sim.rad(angle);
+          hd.setAttribute('cx', (150 + 8 * Math.sin(ph)).toFixed(1));
+          hd.setAttribute('cy', (ay - 24 * Math.cos(ph)).toFixed(1));
+        };
+      },
+      info: function (angle) {
+        return '<dl class="values">' + valueBox('<span class="tag-in">入力</span>：ウォーム', turns(angle) + ' 回転', '1回転でホイールが1歯分進む') +
+          valueBox('<span class="tag-out">出力</span>：ウォームホイール', Sim.fmt(angle / 360, 1) + ' 歯分', '= ' + Sim.fmt(angle / 360 / Z, 3) + ' 回転（' + Z + '歯で1回転）') + '</dl>';
+      }
+    };
+  }
+
+  // 円板（摩擦車・プーリなど）を描く。spokes：スポークの本数
+  function wheelSvg(key, r, color, soft, spokes, rim) {
+    var s = '<g data-k="' + key + '"><circle r="' + r + '" fill="' + soft + '" stroke="' + color + '" stroke-width="' + (rim || 3) + '"/>';
+    for (var k = 0; k < spokes; k++) {
+      var p = pt(0, 0, r * 0.8, k * 360 / spokes);
+      s += '<line x1="0" y1="0" x2="' + p[0].toFixed(1) + '" y2="' + p[1].toFixed(1) + '" stroke="' + color + '" stroke-width="' + (k === 0 ? 5 : 2) + '"/>';
+    }
+    return s + '<circle cx="' + (r * 0.8) + '" r="5" fill="#fff" stroke="' + color + '" stroke-width="3"/></g><circle r="6" fill="' + color + '"/>';
+  }
+
+  // 摩擦車
+  function frictionScene() {
+    var W = 520, H = 280, r1 = 50, r2 = 80, cy = 130, x1 = 260 - (r1 + r2) / 2 - 15, x2 = x1 + r1 + r2;
+    return {
+      id: 'friction', mode: 'turn720', viewBox: '0 0 ' + W + ' ' + H,
+      label: '摩擦車の図。接触した2つの車が逆向きに回る',
+      svg: function (uid) {
+        var s = '<g transform="translate(' + x1 + ' ' + cy + ')">' + wheelSvg('w1', r1, C.input, C.inputSoft, 4, 8) + '</g>' +
+          '<g transform="translate(' + x2 + ' ' + cy + ')">' + wheelSvg('w2', r2, C.output, C.outputSoft, 6, 8) + '</g>';
+        s += arcArrow(x1, cy, r1 + 16, -130, -50, true, C.input, uid) + arcArrow(x2, cy, r2 + 16, -130, -50, false, C.output, uid);
+        s += '<circle cx="' + (x1 + r1) + '" cy="' + cy + '" r="10" fill="none" stroke="#0f172a" stroke-width="2" stroke-dasharray="3 3"/>';
+        s += text(x1 + r1, cy - r2 - 36, '接触部', '#0f172a', { size: 13 });
+        s += '<line x1="' + (x1 + r1) + '" y1="' + (cy - r2 - 30) + '" x2="' + (x1 + r1) + '" y2="' + (cy - 12) + '" stroke="#0f172a" stroke-dasharray="3 3"/>';
+        s += text(x1, cy + r2 + 30, '入力（小さい車）', C.input) + text(x2, cy + r2 + 30, '出力（大きい車）', C.output);
+        return s;
+      },
+      bind: function (svg) {
+        var w1 = svg.querySelector('[data-k="w1"]'), w2 = svg.querySelector('[data-k="w2"]');
+        return function (angle) {
+          w1.setAttribute('transform', 'rotate(' + angle.toFixed(2) + ')');
+          w2.setAttribute('transform', 'rotate(' + (180 - angle * r1 / r2).toFixed(2) + ')');
+        };
+      },
+      info: function (angle) {
+        return '<dl class="values">' + valueBox('<span class="tag-in">入力</span>の回転', turns(angle) + ' 回転', dirName(true)) +
+          valueBox('<span class="tag-out">出力</span>の回転', turns(angle * r1 / r2) + ' 回転', dirName(false) + '（すべらないモデル）') + '</dl>';
+      }
+    };
+  }
+
+  // ベルトとプーリ／歯つきベルト／チェーン（巻き掛け）
+  function wrapScene(kind) {
+    var W = 520, H = 280, cy = 125, cfg;
+    if (kind === 'belt') cfg = { r1: 32, r2: 52, target: 240, pitch: 20 };
+    if (kind === 'timing') cfg = { z1: 16, z2: 26, m: 3.5, target: 240 };
+    if (kind === 'chain') cfg = { z1: 12, z2: 20, m: 16 / Math.PI, target: 240 };
+    if (cfg.z1) { cfg.r1 = cfg.m * cfg.z1 / 2; cfg.r2 = cfg.m * cfg.z2 / 2; cfg.pitch = Math.PI * cfg.m; }
+    var r1 = cfg.r1, r2 = cfg.r2, p = cfg.pitch;
+    var D = Sim.fitCenterDistance(r1, r2, cfg.target, p);
+    var x1 = (W - (D + r1 + r2)) / 2 + r1, x2 = x1 + D;
+    var belt = Sim.openBeltPath(x1, r1, x2, r2, cy);
+    var beta = Sim.deg(Math.asin((r2 - r1) / D));
+    var startA = -90 - beta; // 上側の接点の向き
+    var straight = Math.sqrt(D * D - (r2 - r1) * (r2 - r1));
+    var o1 = 0, o2 = 0;
+    if (cfg.z1) {
+      // 歯（ローラー）がプーリ・スプロケットのすき間に入るように向きをそろえる
+      o1 = startA - 180 / cfg.z1;
+      var delta = Sim.mod(straight, p);
+      o2 = startA + Sim.deg(Sim.mod(p - delta, p) / r2) - 180 / cfg.z2;
+    }
+    var names = {
+      belt: ['入力：プーリ（小）', '出力：プーリ（大）', 'ベルト', 'ベルトとプーリの図。交差しないベルトで2つのプーリが同じ向きに回る'],
+      timing: ['入力：歯つきプーリ', '出力：歯つきプーリ', '歯つきベルト', '歯つきベルトと歯つきプーリの図'],
+      chain: ['入力：スプロケット', '出力：スプロケット', 'チェーン', 'チェーンとスプロケットの図']
+    }[kind];
+    var wheel = function (key, r, z, color, soft) {
+      if (!z) return wheelSvg(key, r, color, soft, 5);
+      return '<g data-k="' + key + '"><path d="' + Sim.gearPath(z, cfg.m) + '" fill="' + soft + '" stroke="' + color + '" stroke-width="2"/>' +
+        '<line x1="0" y1="0" x2="' + (r * 0.6) + '" y2="0" stroke="' + color + '" stroke-width="4"/><circle cx="' + (r * 0.6) + '" r="5" fill="#fff" stroke="' + color + '" stroke-width="3"/></g><circle r="6" fill="' + color + '"/>';
+    };
+    return {
+      id: kind, mode: 'turn720', viewBox: '0 0 ' + W + ' ' + H, label: names[3],
+      svg: function (uid) {
+        var s = '<g transform="translate(' + x1.toFixed(1) + ' ' + cy + ')">' + wheel('w1', r1, cfg.z1, C.input, C.inputSoft) + '</g>' +
+          '<g transform="translate(' + x2.toFixed(1) + ' ' + cy + ')">' + wheel('w2', r2, cfg.z2, C.output, C.outputSoft) + '</g>';
+        if (kind === 'belt') {
+          s += '<path d="' + belt.d + '" fill="none" stroke="#334155" stroke-width="7"/>';
+          s += '<path data-k="mv" d="' + belt.d + '" fill="none" stroke="#fde047" stroke-width="3" stroke-dasharray="6 ' + (p - 6) + '"/>';
+        } else if (kind === 'timing') {
+          s += '<path d="' + belt.d + '" fill="none" stroke="#1f2937" stroke-width="6"/>';
+          s += '<path data-k="mv" d="' + belt.d + '" fill="none" stroke="#1f2937" stroke-width="12" stroke-dasharray="' + (p * 0.4).toFixed(2) + ' ' + (p * 0.6).toFixed(2) + '"/>';
+        } else {
+          s += '<path data-k="mv2" d="' + belt.d + '" fill="none" stroke="#475569" stroke-width="11" stroke-dasharray="' + (p * 0.7).toFixed(2) + ' ' + (p * 0.3).toFixed(2) + '"/>';
+          s += '<path data-k="mv" d="' + belt.d + '" fill="none" stroke="#e2e8f0" stroke-width="6" stroke-linecap="round" stroke-dasharray="0.01 ' + (p - 0.01).toFixed(2) + '"/>';
+        }
+        s += arcArrow(x1, cy, r1 + 18, 140, 220, true, C.input, uid) + arcArrow(x2, cy, r2 + 18, -40, 40, true, C.output, uid);
+        s += text(x1, cy + r2 + 40, names[0], C.input) + text(x2, cy + r2 + 40, names[1], C.output);
+        s += text((x1 + x2) / 2, cy - r2 - 18, names[2] + '（動く向き →）', '#334155', { size: 13 });
+        return s;
+      },
+      bind: function (svg) {
+        var w1 = svg.querySelector('[data-k="w1"]'), w2 = svg.querySelector('[data-k="w2"]');
+        var mv = svg.querySelector('[data-k="mv"]'), mv2 = svg.querySelector('[data-k="mv2"]');
+        return function (angle) {
+          var sLen = r1 * Sim.rad(angle); // ベルト（チェーン）が進んだ長さ
+          w1.setAttribute('transform', 'rotate(' + (o1 + angle).toFixed(2) + ')');
+          w2.setAttribute('transform', 'rotate(' + (o2 + angle * r1 / r2).toFixed(2) + ')');
+          var off = kind === 'timing' ? p * 0.2 - sLen : -sLen;
+          mv.setAttribute('stroke-dashoffset', off.toFixed(2));
+          if (mv2) mv2.setAttribute('stroke-dashoffset', (-p * 0.15 - sLen).toFixed(2));
+        };
+      },
+      info: function (angle) {
+        var out = angle * r1 / r2;
+        return '<dl class="values">' + valueBox('<span class="tag-in">入力</span>の回転', turns(angle) + ' 回転', dirName(true)) +
+          valueBox('<span class="tag-out">出力</span>の回転', turns(out) + ' 回転', dirName(true) + '（入力と同じ向き）') + '</dl>';
+      }
+    };
+  }
+
+  // ラックとピニオン
+  function rackScene() {
+    var W = 520, H = 280, R = Sim.RACK, m = R.module, z = R.teeth, cx = 260, cy = 110;
+    var rp = R.pitchR, p = Math.PI * m, half = 7 * p, top = cy + rp;
+    var rackD = function () {
+      // ピッチ線（y=top）を基準にしたラックの歯形（中心を x=0 として描く）
+      var d = 'M' + (-half) + ' ' + (top + 30) + 'L' + (-half) + ' ' + (top + 1.25 * m);
+      for (var x = -half + p / 2; x < half; x += p) {
+        // 歯の中心が x
+        d += 'L' + (x - p * 0.30).toFixed(1) + ' ' + (top + 1.25 * m) + 'L' + (x - p * 0.14).toFixed(1) + ' ' + (top - m) +
+          'L' + (x + p * 0.14).toFixed(1) + ' ' + (top - m) + 'L' + (x + p * 0.30).toFixed(1) + ' ' + (top + 1.25 * m);
+      }
+      return d + 'L' + half + ' ' + (top + 1.25 * m) + 'L' + half + ' ' + (top + 30) + 'Z';
+    };
+    return {
+      id: 'rack', mode: 'rack', viewBox: '0 0 ' + W + ' ' + H,
+      label: 'ラックとピニオンの図。ピニオンが入力、ラックが出力',
+      svg: function (uid) {
+        var s = '';
+        var lim = R.travel + half;
+        [cx - lim, cx + lim].forEach(function (x, i) {
+          s += '<rect x="' + (i ? x : x - 8) + '" y="' + (top - 10) + '" width="8" height="50" fill="#94a3b8"/>';
+        });
+        s += '<line x1="' + (cx - lim) + '" y1="' + (top + 44) + '" x2="' + (cx + lim) + '" y2="' + (top + 44) + '" stroke="#94a3b8" stroke-width="3"/>';
+        s += '<g data-k="rack"><path d="' + rackD() + '" fill="' + C.outputSoft + '" stroke="' + C.output + '" stroke-width="2"/>' +
+          '<circle cx="0" cy="' + (top + 16) + '" r="5" fill="#fff" stroke="' + C.output + '" stroke-width="3"/></g>';
+        s += '<g transform="translate(' + cx + ' ' + cy + ')"><g data-k="pin"><path d="' + Sim.gearPath(z, m) + '" fill="' + C.inputSoft + '" stroke="' + C.input + '" stroke-width="2"/>' +
+          '<line x1="0" y1="0" x2="' + (rp * 0.6) + '" y2="0" stroke="' + C.input + '" stroke-width="4"/><circle cx="' + (rp * 0.6) + '" r="5" fill="#fff" stroke="' + C.input + '" stroke-width="3"/></g><circle r="6" fill="' + C.input + '"/></g>';
+        s += '<g data-k="arr"></g>';
+        s += text(cx, cy - rp - 34, '入力：ピニオン', C.input);
+        s += text(cx, top + 66, '出力：ラック（端で止まる）', C.output);
+        return s;
+      },
+      bind: function (svg) {
+        var rack = svg.querySelector('[data-k="rack"]'), pin = svg.querySelector('[data-k="pin"]'), arr = svg.querySelector('[data-k="arr"]');
+        var uidM = svg.querySelector('marker').id.replace(/^ah-in-/, '');
+        var lastDir = 0;
+        return function (angle) {
+          var rs = Sim.rackState(angle);
+          // 時計回りに回すと、下側の歯は左へ進む
+          rack.setAttribute('transform', 'translate(' + (cx - rs.x).toFixed(2) + ' 0)');
+          pin.setAttribute('transform', 'rotate(' + (90 + rs.angle).toFixed(2) + ')');
+          var dir = (state.sims.rack && state.sims.rack.dir) || 1;
+          if (dir !== lastDir) {
+            lastDir = dir;
+            arr.innerHTML = arcArrow(cx, cy, rp + m + 14, -130, -50, dir > 0, C.input, uidM) +
+              '<path d="M' + (dir > 0 ? cx + 40 : cx - 40) + ' ' + (top + 84) + 'H' + (dir > 0 ? cx - 40 : cx + 40) + '" stroke="' + C.output + '" stroke-width="3" marker-end="url(#ah-out-' + uidM + ')"/>';
+          }
+        };
+      },
+      info: function (angle, st) {
+        var rs = Sim.rackState(angle);
+        var pos = -rs.x;
+        var html = '<dl class="values">' + valueBox('<span class="tag-in">入力</span>：ピニオン', Math.round(rs.angle) + '°', '回した角度（時計回りが＋）') +
+          valueBox('<span class="tag-out">出力</span>：ラックの位置', (pos < -0.5 ? '左へ ' : pos > 0.5 ? '右へ ' : '') + Sim.fmt(Math.abs(pos), 0) + ' mm', '中央から。端までは ' + R.travel + 'mm') + '</dl>';
+        if (rs.atEnd) html += '<p class="alert">ラックが端に着いたので止まりました。「回す向き」を変えるか、手で逆向きに回すと戻ります。</p>';
+        return html;
+      }
+    };
+  }
+
+  // ---------- 教科書の機構（固定構成） ----------
+  var MECHS = [
+    { id: 'bevel', name: '傘歯車', desc: '交わる2つの軸に回転を伝える', q: '入力軸と出力軸はどのような角度で交わるか', scene: bevelScene },
+    { id: 'worm', name: 'ウォームギア', desc: 'ウォームとウォームホイール', q: 'どの部品が入力側か', scene: wormScene },
+    { id: 'friction', name: '摩擦車', desc: '接触した2つの車', q: '接触部で動きはどう伝わるか', scene: frictionScene },
+    { id: 'belt', name: 'ベルトとプーリ', desc: '離れた2つの軸に回転を伝える', q: 'ベルトのどの部分が動力を伝えるか', scene: function () { return wrapScene('belt'); } },
+    { id: 'timing', name: '歯つきベルトと歯つきプーリ', desc: 'ベルトの歯とプーリの歯がかみ合う', q: 'どこでかみ合うか', scene: function () { return wrapScene('timing'); } },
+    { id: 'chain', name: 'チェーンとスプロケット', desc: 'チェーンとスプロケットの歯がかみ合う', q: '歯はどこに入るか', scene: function () { return wrapScene('chain'); } },
+    { id: 'rack', name: 'ラックとピニオン', desc: '回転を直線の動きに変える', q: 'クランク・スライダの往復と何が違うか', scene: rackScene }
+  ];
+  function mechById(id) { for (var i = 0; i < MECHS.length; i++) if (MECHS[i].id === id) return MECHS[i]; return null; }
+
+  // ---------- 予想・確認問題（v0.1 は仮の問題。テストプレイ後に差し替え予定） ----------
+  var PREDICT = {
+    gear1: { q: '2枚の歯車をかみ合わせて、入力の歯車を時計回りに回すと、出力の歯車はどちら向きに回るだろう？', opts: ['時計回り', '反時計回り', '回らない'] },
+    gear2: { q: '入力20歯・出力40歯にすると、出力の歯車の回る速さは入力と比べてどうなるだろう？', opts: ['速くなる', 'おそくなる', '変わらない'] },
+    calc: { q: 'いまの設定の速度伝達比は、1より大きい・1より小さい・ちょうど1のどれだろう？', opts: ['1より大きい', '1より小さい', 'ちょうど1'] },
+    link: { q: 'クランクを1回転させると、スライダはどう動くだろう？', opts: ['1往復して元の位置に戻る', '2往復する', '一方向に進み続ける'] },
+    cam: { q: 'カムを一定の速さで回し続けると、従動節が止まることはあるだろうか？', opts: ['いつも動き続ける', 'カムの形によっては止まる区間がある', 'ずっと止まっている'] }
+  };
+  var QUIZ = {
+    gear1: { q: '中間歯車を1枚入れて3枚にすると、出力の歯車の向きは入力と比べてどうなる？', opts: ['入力と同じ向き', '入力と逆向き', '回らなくなる'], ans: 0,
+      exp: 'かみ合う歯車は、1組ごとに回る向きが逆になります。3枚では2回逆になるので、入力と同じ向きになります。' },
+    gear2: { q: '出力の歯数を入力より多くすると、出力の回転数と理想トルクはどうなる？', opts: ['回転数は減り、トルクは大きくなる', '回転数もトルクも大きくなる', '回転数は増え、トルクは小さくなる'], ans: 0,
+      exp: '速度伝達比が1より小さくなるので、出力回転数は減り、理想トルクは大きくなります。' },
+    link: { q: 'クランクの半径を大きくすると、出力（スライダやレバー）の動く範囲はどうなる？', opts: ['広くなる', 'せまくなる', '変わらない'], ans: 0,
+      exp: 'クランクの半径が大きいほど、1回転の間に出力が動く範囲（移動の幅・揺れる角度）が大きくなります。' },
+    cam: { q: '従動節を一定の位置にとどめる区間をつくれるのは、どちらのカムの形？', opts: ['形A', '形B', 'どちらもつくれない'], ans: 1,
+      exp: '形Bは、半径が変わらない部分があるので、その間は従動節が同じ位置にとどまります。' }
+  };
+
+  // 予想の欄
+  function predictHtml(key) {
+    var p = PREDICT[key], sel = state.predict[key];
+    var s = '<p>' + esc(p.q) + '</p><div class="choices">';
+    p.opts.forEach(function (o, i) {
+      s += '<button type="button" class="btn choice" data-pred="' + i + '" aria-pressed="' + (sel === i) + '">' + esc(o) + '</button>';
+    });
+    s += '</div>';
+    if (sel !== undefined) s += '<p class="feedback info">予想：「' + esc(p.opts[sel]) + '」。2 で動かして確かめよう。（予想は記録されません）</p>';
+    return s;
+  }
+  function bindPredict(el, key) {
+    el.querySelectorAll('[data-pred]').forEach(function (b) {
+      b.addEventListener('click', function () { state.predict[key] = Number(b.getAttribute('data-pred')); el.innerHTML = predictHtml(key); bindPredict(el, key); });
+    });
+  }
+  // 確認問題の欄
+  function quizHtml(key) {
+    var q = QUIZ[key], st = state.quiz[key] || {};
+    var s = '<p>' + esc(q.q) + '</p><div class="choices">';
+    q.opts.forEach(function (o, i) {
+      s += '<button type="button" class="btn choice" data-quiz="' + i + '" aria-pressed="' + (st.sel === i) + '">' + esc(o) + '</button>';
+    });
+    s += '</div><button type="button" class="btn primary" data-check>答え合わせ</button>';
+    if (st.checked) {
+      if (st.sel === undefined) s += '<p class="feedback ng">選んでから「答え合わせ」を押してね。</p>';
+      else if (st.sel === q.ans) s += '<p class="feedback ok">正解！ ' + esc(q.exp) + '</p>';
+      else s += '<p class="feedback ng">もう一度考えてみよう。上で設定を変えて動かし、確かめてから選び直せます。</p>';
+    }
+    return s;
+  }
+  function bindQuiz(el, key) {
+    var st = state.quiz[key] || (state.quiz[key] = {});
+    el.querySelectorAll('[data-quiz]').forEach(function (b) {
+      b.addEventListener('click', function () { st.sel = Number(b.getAttribute('data-quiz')); st.checked = false; el.innerHTML = quizHtml(key); bindQuiz(el, key); });
+    });
+    el.querySelector('[data-check]').addEventListener('click', function () { st.checked = true; el.innerHTML = quizHtml(key); bindQuiz(el, key); });
+  }
+
+  // 「予想 → 操作 → 確認」の枠
+  function stepHtml(no, title, body) {
+    return '<section class="step"><div class="step-head"><span class="step-no">' + no + '</span><h3>' + title + '</h3></div>' + body + '</section>';
+  }
+  // 切り替えボタンの組
+  function segHtml(name, label, options, current) {
+    var s = '<div class="setting"><span class="label">' + label + '</span><span class="seg">';
+    options.forEach(function (o) {
+      s += '<button type="button" class="btn" data-set="' + name + '" data-val="' + esc(String(o[0])) + '" aria-pressed="' + (o[0] === current) + '">' + esc(o[1]) + '</button>';
+    });
+    return s + '</span></div>';
+  }
+  function bindSeg(root, handler) {
+    root.querySelectorAll('[data-set]').forEach(function (b) {
+      b.addEventListener('click', function () { handler(b.getAttribute('data-set'), b.getAttribute('data-val')); });
+    });
+  }
+  function pagerHtml(prev, next) {
+    var b = function (t) { return t ? '<button type="button" class="btn" data-go="' + t[0] + '">' + esc(t[1]) + '</button>' : '<span></span>'; };
+    return '<nav class="pager">' + b(prev) + b(next) + '</nav>';
+  }
+
+  // ---------- 各画面 ----------
+  var app = document.getElementById('app');
+
+  function renderHome() {
+    app.innerHTML =
+      '<h1>動力伝達・運動変換シミュレーター</h1>' +
+      '<p class="lead">モーターの回転が、しくみを通ってどんな向き・速さ・動きになるかを、動かして確かめよう。どこからでも始められます。</p>' +
+      '<section class="course"><h2>回転を伝える</h2><div class="course-grid">' +
+      card('gear1', '① 回転の伝わり方', '歯車2枚と3枚で、回る向きを比べる') +
+      card('gear2', '② 平歯車の速さとトルク', '歯数を変えて、回転数とトルクを比べる') +
+      card('calc', '③ 速度伝達比の計算', '②の設定で計算して確かめる') +
+      '</div></section>' +
+      '<section class="course"><h2>回転を別の運動に変える</h2><div class="course-grid">' +
+      card('link', '④ リンクの実験', 'クランク・スライダと揺動レバー') +
+      card('cam', '⑤ カムの実験', '形によって変わる従動節の動き') +
+      '</div></section>' +
+      '<section class="course"><h2>ほかの機構・まとめ</h2><div class="course-grid">' +
+      card('list', '⑥ 教科書の機構を見る', '傘歯車・ベルト・チェーン・ラックなど7種類') +
+      card('summary', '⑦ まとめ課題', '機構を選んで試し、理由を書く') +
+      '</div></section>';
+  }
+  function card(go, title, sub) {
+    return '<button type="button" class="card-btn" data-go="' + go + '"><strong>' + esc(title) + '</strong><span>' + esc(sub) + '</span></button>';
+  }
+
+  // ① 回転の伝わり方
+  function renderGear1() {
+    app.innerHTML = '<h2>① 回転の伝わり方</h2>' +
+      stepHtml(1, '予想', '<div data-k="pred"></div>') +
+      stepHtml(2, '操作', '<div class="settings" data-k="set"></div><div data-k="sim"></div>' +
+        '<p class="note">歯車以外の伝え方も見てみよう：<button type="button" class="btn" data-go="list">⑥ 教科書の機構を見る</button></p>') +
+      stepHtml(3, '確認', '<div data-k="quiz"></div>') +
+      pagerHtml(['home', '← ホーム'], ['gear2', '次：② 速さとトルク →']);
+    var q = function (k) { return app.querySelector('[data-k="' + k + '"]'); };
+    q('pred').innerHTML = predictHtml('gear1'); bindPredict(q('pred'), 'gear1');
+    q('quiz').innerHTML = quizHtml('gear1'); bindQuiz(q('quiz'), 'gear1');
+    var draw = function () {
+      q('set').innerHTML = segHtml('idler', '歯車の枚数', [[false, '2枚（中間歯車なし）'], [true, '3枚（中間歯車あり）']], state.gear.idler);
+      bindSeg(q('set'), function (n, v) { state.gear.idler = v === 'true'; draw(); });
+      mountSim(q('sim'), gearScene(state.gear, 'gear'));
+    };
+    draw();
+  }
+
+  // ② 平歯車の速さとトルク
+  function renderGear2() {
+    app.innerHTML = '<h2>② 平歯車の速さとトルク</h2>' +
+      stepHtml(1, '予想', '<div data-k="pred"></div>') +
+      stepHtml(2, '操作', '<div class="settings" data-k="set"></div><div data-k="calcv"></div><div data-k="sim"></div>') +
+      stepHtml(3, '確認', '<div data-k="quiz"></div>') +
+      pagerHtml(['gear1', '← 前：① 回転の伝わり方'], ['calc', '次：③ 計算 →']);
+    var q = function (k) { return app.querySelector('[data-k="' + k + '"]'); };
+    q('pred').innerHTML = predictHtml('gear2'); bindPredict(q('pred'), 'gear2');
+    q('quiz').innerHTML = quizHtml('gear2'); bindQuiz(q('quiz'), 'gear2');
+    var draw = function () {
+      var g = state.gear, t = Sim.TEETH_CHOICES.map(function (z) { return [z, z + '歯']; });
+      q('set').innerHTML = segHtml('inTeeth', '入力の歯数', t, g.inTeeth) + segHtml('outTeeth', '出力の歯数', t, g.outTeeth) +
+        segHtml('idler', '中間歯車（20歯）', [[false, 'なし'], [true, 'あり']], g.idler);
+      bindSeg(q('set'), function (n, v) {
+        if (n === 'idler') g.idler = v === 'true'; else g[n] = Number(v);
+        draw();
+      });
+      var r = Sim.gearTrain(g);
+      q('calcv').innerHTML = '<p class="formula">速度伝達比 ＝ 出力回転数 ÷ 入力回転数 ＝ 入力歯数 ÷ 出力歯数</p>' +
+        '<dl class="values">' +
+        valueBox('<span class="tag-in">入力</span>（計算上）', Sim.INPUT_RPM + ' 回転/分', 'トルク ' + Sim.INPUT_TORQUE + ' N·m') +
+        valueBox('速度伝達比', Sim.fmt(r.ratio), g.inTeeth + ' ÷ ' + g.outTeeth) +
+        valueBox('<span class="tag-out">出力</span>回転数（計算上）', Sim.fmt(r.outRpm) + ' 回転/分', '向き：' + (r.outSameDir ? '入力と同じ' : '入力と逆')) +
+        valueBox('<span class="tag-out">出力</span>トルク', Sim.fmt(r.outTorque) + ' N·m', '損失を無視した理想値') +
+        '</dl>';
+      mountSim(q('sim'), gearScene(g, 'gear'));
+    };
+    draw();
+  }
+
+  // ③ 速度伝達比の計算
+  function renderCalc() {
+    var g = state.gear, key = g.inTeeth + '-' + g.outTeeth + '-' + g.idler;
+    if (state.calc.key !== key) { state.calc = { ratio: '', rpm: '', result: null, key: key }; }
+    app.innerHTML = '<h2>③ 速度伝達比の計算</h2>' +
+      stepHtml(1, '予想', '<div data-k="pred"></div>') +
+      stepHtml(2, '操作（設定の確認）',
+        '<p>②の設定を使って計算します。</p>' +
+        '<dl class="values">' +
+        valueBox('<span class="tag-in">入力</span>の歯数', g.inTeeth + ' 歯') +
+        valueBox('<span class="tag-out">出力</span>の歯数', g.outTeeth + ' 歯') +
+        valueBox('中間歯車', g.idler ? 'あり（20歯）' : 'なし') +
+        valueBox('<span class="tag-in">入力</span>回転数', Sim.INPUT_RPM + ' 回転/分') +
+        '</dl>' +
+        '<p class="formula">速度伝達比 ＝ 出力回転数 ÷ 入力回転数 ＝ 入力歯数 ÷ 出力歯数<br>出力回転数 ＝ 入力回転数 × 速度伝達比</p>' +
+        '<button type="button" class="btn" data-go="gear2">← ②に戻って設定を変える</button>') +
+      stepHtml(3, '確認', '<div data-k="quiz"></div>') +
+      pagerHtml(['gear2', '← 前：② 速さとトルク'], ['home', 'ホームへ']);
+    var q = function (k) { return app.querySelector('[data-k="' + k + '"]'); };
+    q('pred').innerHTML = predictHtml('calc'); bindPredict(q('pred'), 'calc');
+    var drawQuiz = function () {
+      var c = state.calc, res = c.result;
+      var mark = function (ok) { return res ? '<span class="mark ' + (ok ? 'ok' : 'ng') + '">' + (ok ? '○ 正しい' : '× ちがう') + '</span>' : ''; };
+      var s = '<p>上の設定のとき、速度伝達比と出力回転数を計算して入力しよう。</p>' +
+        '<div class="answer-row"><label for="ansRatio">速度伝達比</label><input id="ansRatio" type="text" inputmode="decimal" autocomplete="off" value="' + esc(c.ratio) + '">' + mark(res && res.ratioOk) + '</div>' +
+        '<div class="answer-row"><label for="ansRpm">出力回転数</label><input id="ansRpm" type="text" inputmode="decimal" autocomplete="off" value="' + esc(c.rpm) + '"><span>回転/分</span>' + mark(res && res.rpmOk) + '</div>' +
+        '<button type="button" class="btn primary" data-check>確かめる</button>';
+      if (res && res.allOk) {
+        var r = Sim.gearTrain(g);
+        s += '<div class="feedback ok"><strong>正解！</strong><br>' +
+          '速度伝達比 ＝ ' + g.inTeeth + ' ÷ ' + g.outTeeth + ' ＝ ' + Sim.fmt(r.ratio) + '<br>' +
+          '出力回転数 ＝ ' + Sim.INPUT_RPM + ' 回転/分 × ' + Sim.fmt(r.ratio) + ' ＝ ' + Sim.fmt(r.outRpm) + ' 回転/分<br>' +
+          '理想出力トルク ＝ ' + Sim.INPUT_TORQUE + ' N·m ÷ ' + Sim.fmt(r.ratio) + ' ＝ ' + Sim.fmt(r.outTorque) + ' N·m（損失を無視した理想値）</div>';
+      } else if (res) {
+        s += '<div class="feedback ng"><strong>ヒント</strong><br>' + res.hints.map(esc).join('<br>') + '<br>直して、もう一度「確かめる」を押そう。</div>';
+      }
+      q('quiz').innerHTML = s;
+      var iR = q('quiz').querySelector('#ansRatio'), iP = q('quiz').querySelector('#ansRpm');
+      iR.addEventListener('input', function () { c.ratio = iR.value; });
+      iP.addEventListener('input', function () { c.rpm = iP.value; });
+      q('quiz').querySelector('[data-check]').addEventListener('click', function () {
+        c.result = Sim.checkCalc(g, c.ratio, c.rpm); drawQuiz();
+      });
+    };
+    drawQuiz();
+  }
+
+  // ④ リンクの実験
+  function renderLink() {
+    app.innerHTML = '<h2>④ リンクの実験</h2>' +
+      stepHtml(1, '予想', '<div data-k="pred"></div>') +
+      stepHtml(2, '操作', '<div class="settings" data-k="set"></div><div data-k="sim"></div>' +
+        '<p class="note">回転を直線の動きに変える、別のしくみと比べよう：<button type="button" class="btn" data-go="mech" data-id="rack" data-from="link">ラックとピニオンを見る</button></p>') +
+      stepHtml(3, '確認', '<div data-k="quiz"></div>') +
+      pagerHtml(['home', '← ホーム'], ['cam', '次：⑤ カムの実験 →']);
+    var q = function (k) { return app.querySelector('[data-k="' + k + '"]'); };
+    q('pred').innerHTML = predictHtml('link'); bindPredict(q('pred'), 'link');
+    q('quiz').innerHTML = quizHtml('link'); bindQuiz(q('quiz'), 'link');
+    var draw = function () {
+      var L = state.link;
+      q('set').innerHTML = segHtml('type', '機構', [['slider', 'クランク・スライダ'], ['rocker', 'クランク・揺動レバー']], L.type) +
+        segHtml('size', 'クランクの半径', [['small', '小'], ['large', '大']], L.size);
+      bindSeg(q('set'), function (n, v) { L[n] = v; draw(); });
+      mountSim(q('sim'), linkScene(L.type, L.size));
+    };
+    draw();
+  }
+
+  // ⑤ カムの実験
+  function renderCam() {
+    app.innerHTML = '<h2>⑤ カムの実験</h2>' +
+      stepHtml(1, '予想', '<div data-k="pred"></div>') +
+      stepHtml(2, '操作', '<div class="settings" data-k="set"></div><div data-k="sim"></div>') +
+      stepHtml(3, '確認', '<div data-k="quiz"></div>') +
+      pagerHtml(['link', '← 前：④ リンクの実験'], ['home', 'ホームへ']);
+    var q = function (k) { return app.querySelector('[data-k="' + k + '"]'); };
+    q('pred').innerHTML = predictHtml('cam'); bindPredict(q('pred'), 'cam');
+    q('quiz').innerHTML = quizHtml('cam'); bindQuiz(q('quiz'), 'cam');
+    var draw = function () {
+      q('set').innerHTML = segHtml('type', 'カムの形', [['A', '形A'], ['B', '形B']], state.cam.type);
+      bindSeg(q('set'), function (n, v) { state.cam.type = v; draw(); });
+      mountSim(q('sim'), camScene(state.cam.type));
+    };
+    draw();
+  }
+
+  // ⑥ 教科書の機構を見る（一覧）
+  function renderList() {
+    var s = '<h2>⑥ 教科書の機構を見る</h2><p class="lead">見たい機構を選ぼう。どれも同じ操作（再生・一時停止・低速・手で回す）で動かせます。</p><div class="course-grid">';
+    MECHS.forEach(function (mc) {
+      s += '<button type="button" class="card-btn" data-go="mech" data-id="' + mc.id + '" data-from="list"><strong>' + esc(mc.name) + '</strong><span>' + esc(mc.desc) + '</span></button>';
+    });
+    s += '</div>' + pagerHtml(['home', '← ホーム'], null);
+    app.innerHTML = s;
+  }
+
+  // 固定構成の機構を1つ動かす画面
+  function renderMech() {
+    var mc = mechById(state.params.id) || MECHS[0];
+    var from = state.params.from === 'link' ? ['link', '← ④ リンクの実験に戻る'] : ['list', '← 機構一覧に戻る'];
+    app.innerHTML = '<h2>' + esc(mc.name) + '</h2>' +
+      '<div class="question-box"><strong>観察の問い</strong><br>' + esc(mc.q) + '</div>' +
+      '<div data-k="sim"></div>' + pagerHtml(from, ['home', 'ホームへ']);
+    mountSim(app.querySelector('[data-k="sim"]'), mc.scene());
+  }
+
+  // ⑦ まとめ課題
+  var TASKS = ['モーターを回し続けて、部品を一定の間隔で押し出す', 'モーターを回し続けて、アームを左右に振る'];
+  var SUMMARY_MECHS = [
+    { id: 'gear', name: '平歯車（②）', go: 'gear2' },
+    { id: 'slider', name: 'クランク・スライダ（④）', go: 'link', link: 'slider' },
+    { id: 'rocker', name: 'クランク・揺動レバー（④）', go: 'link', link: 'rocker' },
+    { id: 'camA', name: 'カム 形A（⑤）', go: 'cam', cam: 'A' },
+    { id: 'camB', name: 'カム 形B（⑤）', go: 'cam', cam: 'B' }
+  ].concat(MECHS.map(function (mc) { return { id: mc.id, name: mc.name + '（⑥）', go: 'mech', mech: mc.id }; }));
+
+  // 選んだ機構の、いまの設定を文章にする
+  function settingText(id) {
+    var g = state.gear, L = state.link;
+    if (id === 'gear') return '入力' + g.inTeeth + '歯・出力' + g.outTeeth + '歯・中間歯車' + (g.idler ? 'あり' : 'なし');
+    if (id === 'slider' || id === 'rocker') return 'クランクの半径：' + (L.size === 'small' ? '小' : '大');
+    return '';
+  }
+  function summaryText() {
+    var sm = state.summary, mech = null;
+    SUMMARY_MECHS.forEach(function (x) { if (x.id === sm.mech) mech = x; });
+    var st = mech ? settingText(mech.id) : '';
+    return '【まとめ課題】' + (sm.task !== '' ? TASKS[Number(sm.task)] : '（課題を選んでいません）') + '\n' +
+      '選んだ機構：' + (mech ? mech.name.replace(/（.）$/, '') + (st ? '（' + st + '）' : '') : '（選んでいません）') + '\n' +
+      '■選んだ機構と理由\n' + sm.reason + '\n' +
+      '■試して分かったこと\n' + sm.learned + '\n' +
+      '■調整した点と理由\n' + sm.adjust + '\n';
+  }
+
+  function renderSummary() {
+    state.fromSummary = false;
+    var sm = state.summary;
+    var s = '<h2>⑦ まとめ課題</h2>' +
+      '<p class="warn">ここに書いた内容は、このページを開いている間だけ残ります。<strong>ページを再読み込みしたり、タブを閉じたりすると消えます。</strong>書き終えたら下の「まとめてコピー」を使い、先生が指定した提出先に貼り付けてください。</p>' +
+      '<div class="field"><span class="label">1. 課題を選ぶ</span><div class="choices">';
+    TASKS.forEach(function (t, i) {
+      s += '<button type="button" class="btn choice" data-task="' + i + '" aria-pressed="' + (sm.task === String(i)) + '">' + esc(t) + '</button>';
+    });
+    s += '</div></div>' +
+      '<div class="field"><label for="mechSel">2. 機構を選んで試す</label>' +
+      '<select id="mechSel"><option value="">（機構を選ぶ）</option>';
+    SUMMARY_MECHS.forEach(function (x) { s += '<option value="' + x.id + '"' + (sm.mech === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>'; });
+    s += '</select><p class="note" data-k="mechNote"></p>' +
+      '<button type="button" class="btn primary" data-k="try">この機構を試す →</button>' +
+      '<p class="note">試したあとは、画面上の「まとめ課題に戻る」を押すと、ここに戻れます。</p></div>' +
+      '<div class="field"><label for="tReason">3. 選んだ機構と理由</label><textarea id="tReason" data-f="reason"></textarea></div>' +
+      '<div class="field"><label for="tLearned">4. 試して分かったこと</label><textarea id="tLearned" data-f="learned"></textarea></div>' +
+      '<div class="field"><label for="tAdjust">5. 調整した点と理由</label><textarea id="tAdjust" data-f="adjust"></textarea></div>' +
+      '<div class="field"><label for="tAll">まとめてコピー（提出用）</label>' +
+      '<textarea id="tAll" class="copy-area" readonly></textarea>' +
+      '<div class="controls" style="margin-top:8px"><button type="button" class="btn primary" data-k="copy">まとめてコピー</button></div>' +
+      '<p class="note" data-k="copyMsg" aria-live="polite"></p></div>' +
+      '<p class="note">氏名などの個人情報は、ここには書かないでください。</p>' +
+      pagerHtml(['home', '← ホーム'], null);
+    app.innerHTML = s;
+    var all = app.querySelector('#tAll');
+    var refreshAll = function () {
+      all.value = summaryText();
+      var note = app.querySelector('[data-k="mechNote"]');
+      var st = sm.mech ? settingText(sm.mech) : '';
+      note.textContent = st ? 'いまの設定：' + st : '';
+      app.querySelector('[data-k="try"]').disabled = !sm.mech;
+    };
+    app.querySelectorAll('[data-task]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        sm.task = b.getAttribute('data-task');
+        app.querySelectorAll('[data-task]').forEach(function (x) { x.setAttribute('aria-pressed', String(x === b)); });
+        refreshAll();
+      });
+    });
+    app.querySelectorAll('[data-f]').forEach(function (ta) {
+      ta.value = sm[ta.getAttribute('data-f')];
+      ta.addEventListener('input', function () { sm[ta.getAttribute('data-f')] = ta.value; refreshAll(); });
+    });
+    var sel = app.querySelector('#mechSel');
+    sel.addEventListener('change', function () { sm.mech = sel.value; refreshAll(); });
+    app.querySelector('[data-k="try"]').addEventListener('click', function () {
+      var x = null;
+      SUMMARY_MECHS.forEach(function (m) { if (m.id === sm.mech) x = m; });
+      if (!x) return;
+      if (x.link) state.link.type = x.link;
+      if (x.cam) state.cam.type = x.cam;
+      state.fromSummary = true;
+      go(x.go, x.mech ? { id: x.mech, from: 'list' } : {});
+    });
+    app.querySelector('[data-k="copy"]').addEventListener('click', function () {
+      var msg = app.querySelector('[data-k="copyMsg"]');
+      var done = function () { msg.textContent = 'コピーしました。提出先に貼り付けてください。'; };
+      var fallback = function () {
+        all.focus(); all.select();
+        try { if (document.execCommand('copy')) { done(); return; } } catch (e) { /* 下のメッセージを出す */ }
+        msg.textContent = 'うまくコピーできませんでした。上の欄の文字を長押し（または右クリック）して、コピーしてください。';
+      };
+      all.value = summaryText();
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(all.value).then(done, fallback);
+      } else { fallback(); }
+    });
+    refreshAll();
+  }
+
+  // ---------- 画面の切り替え ----------
+  var RENDER = { home: renderHome, gear1: renderGear1, gear2: renderGear2, calc: renderCalc, link: renderLink, cam: renderCam, list: renderList, mech: renderMech, summary: renderSummary };
+
+  function go(screen, params) {
+    stopActive();
+    state.screen = RENDER[screen] ? screen : 'home';
+    state.params = params || {};
+    RENDER[state.screen]();
+    document.getElementById('homeBtn').hidden = state.screen === 'home';
+    document.getElementById('summaryBackBtn').hidden = !(state.fromSummary && state.screen !== 'summary');
+    window.scrollTo(0, 0);
+  }
+
+  // data-go を持つボタンで画面を移動する
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('[data-go]') : null;
+    if (!b) return;
+    var params = {};
+    if (b.getAttribute('data-id')) params.id = b.getAttribute('data-id');
+    if (b.getAttribute('data-from')) params.from = b.getAttribute('data-from');
+    go(b.getAttribute('data-go'), params);
+  });
+  document.getElementById('homeBtn').addEventListener('click', function () { go('home'); });
+  document.getElementById('summaryBackBtn').addEventListener('click', function () { go('summary'); });
+
+  // 想定外のエラーが起きたときの表示
+  window.addEventListener('error', function () {
+    var bar = document.getElementById('errBar');
+    if (bar) return;
+    bar = document.createElement('p');
+    bar.id = 'errBar'; bar.className = 'alert';
+    bar.textContent = 'うまく動かないところがありました。「ホーム」を押してやり直すか、先生に知らせてください。';
+    app.insertBefore(bar, app.firstChild);
+  });
+
+  go('home');
+  requestAnimationFrame(tick);
+
+  // 動作確認用（Playwright のテストから状態を読むため）
+  window.__sim = { state: state, go: go };
+})();

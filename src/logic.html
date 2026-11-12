@@ -1,0 +1,264 @@
+// ===== 計算・図形の処理（画面に依存しない純粋な処理） =====
+// このファイルは index.html の <script> 内に読み込まれる。
+// Node.js からも読み込んでテストできるよう、DOM や GAS の API は使わない。
+// 角度は「度」。画面（SVG）の座標系に合わせ、時計回りを正とする。
+var Sim = (function () {
+  'use strict';
+
+  var INPUT_RPM = 60;        // 計算例の入力回転数（回転/分）
+  var INPUT_TORQUE = 1;      // 計算例の入力トルク（N·m）
+  var IDLER_TEETH = 20;      // 中間歯車の歯数（初版は固定）
+  var TEETH_CHOICES = [20, 40];
+
+  // 角度（度）をラジアンに直す
+  function rad(deg) { return deg * Math.PI / 180; }
+  // 角度（ラジアン）を度に直す
+  function deg(r) { return r * 180 / Math.PI; }
+  // 0 以上 m 未満に収める余り
+  function mod(v, m) { return ((v % m) + m) % m; }
+
+  // 表示用に数値を整える（小数第2位まで、不要な0は省く）
+  function fmt(v, digits) {
+    var d = digits === undefined ? 2 : digits;
+    var p = Math.pow(10, d);
+    var r = Math.round(v * p) / p;
+    if (Object.is(r, -0)) r = 0;
+    return String(r);
+  }
+
+  // ---------- 平歯車 ----------
+
+  // 平歯車の設定から、速度伝達比・出力回転数・理想トルク・向きを求める
+  function gearTrain(s) {
+    var ratio = s.inTeeth / s.outTeeth; // 速度伝達比＝入力歯数÷出力歯数
+    return {
+      inRpm: INPUT_RPM,
+      inTorque: INPUT_TORQUE,
+      ratio: ratio,
+      outRpm: INPUT_RPM * ratio,
+      outTorque: INPUT_TORQUE / ratio,
+      outSameDir: !!s.idler // 中間歯車があると入力と同じ向き
+    };
+  }
+
+  // 入力の回転角から、各歯車の回転角を求める
+  function gearAngles(s, inAngle) {
+    var idler = s.idler ? -inAngle * s.inTeeth / IDLER_TEETH : null;
+    var out = (s.idler ? 1 : -1) * inAngle * s.inTeeth / s.outTeeth;
+    return { input: inAngle, idler: idler, output: out };
+  }
+
+  // 歯車の輪郭（SVG の path）を作る。z：歯数、m：モジュール（図の大きさ）
+  function gearPath(z, m) {
+    var rp = m * z / 2, ra = rp + m, rf = rp - 1.25 * m;
+    var step = 2 * Math.PI / z;
+    var pts = [];
+    for (var i = 0; i < z; i++) {
+      var a = i * step;
+      // 歯の中心が角度 a に来るように、根元→先端→先端→根元
+      pts.push([rf, a - step * 0.30]);
+      pts.push([ra, a - step * 0.14]);
+      pts.push([ra, a + step * 0.14]);
+      pts.push([rf, a + step * 0.30]);
+    }
+    var d = '';
+    for (var j = 0; j < pts.length; j++) {
+      var x = pts[j][0] * Math.cos(pts[j][1]);
+      var y = pts[j][0] * Math.sin(pts[j][1]);
+      d += (j === 0 ? 'M' : 'L') + x.toFixed(2) + ' ' + y.toFixed(2);
+    }
+    return d + 'Z';
+  }
+
+  // ---------- 答えの入力チェック（速度伝達比の計算） ----------
+
+  // 生徒が入力した文字を数値に直す（全角・分数「1/2」にも対応）。読めなければ NaN
+  function parseNumber(text) {
+    if (text === null || text === undefined) return NaN;
+    var t = String(text)
+      .replace(/[０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+      .replace(/[．。]/g, '.')
+      .replace(/[／÷]/g, '/')
+      .replace(/[−ー－]/g, '-')
+      .replace(/\s+/g, '');
+    if (/^-?\d+(\.\d+)?$/.test(t) || /^-?\.\d+$/.test(t)) return Number(t);
+    var f = /^(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)$/.exec(t);
+    if (f && Number(f[2]) !== 0) return Number(f[1]) / Number(f[2]);
+    return NaN;
+  }
+
+  // 2つの数がほぼ等しいか
+  function near(a, b) { return Math.abs(a - b) < 1e-6; }
+
+  // 速度伝達比と出力回転数の答えを確かめ、結果とヒントを返す
+  function checkCalc(s, ratioText, rpmText) {
+    var g = gearTrain(s);
+    var rv = parseNumber(ratioText), pv = parseNumber(rpmText);
+    var res = { ratioOk: near(rv, g.ratio), rpmOk: near(pv, g.outRpm), hints: [] };
+    if (isNaN(rv)) {
+      res.hints.push('速度伝達比の欄に、数字を入れよう（例：1.5 や 3/2）。');
+    } else if (!res.ratioOk) {
+      if (near(rv, s.outTeeth / s.inTeeth)) {
+        res.hints.push('入力と出力が逆になっているよ。速度伝達比は「入力の歯数 ÷ 出力の歯数」。入力側の歯数を分子（割られる数）にしよう。');
+      } else {
+        res.hints.push('速度伝達比は「入力の歯数 ÷ 出力の歯数」で求めるよ。どちらを分子（割られる数）にするか確かめよう。');
+      }
+    }
+    if (isNaN(pv)) {
+      res.hints.push('出力回転数の欄に、数字を入れよう。');
+    } else if (!res.rpmOk) {
+      res.hints.push('出力回転数は「入力回転数 × 速度伝達比」で求めるよ。');
+    }
+    res.allOk = res.ratioOk && res.rpmOk;
+    return res;
+  }
+
+  // ---------- リンク ----------
+
+  // リンク機構の寸法（図の単位。1目盛り＝1mm として表示）
+  var LINK = {
+    slider: { rod: 150, radii: { small: 25, large: 45 } },
+    rocker: { ground: 140, coupler: 120, lever: 80, radii: { small: 25, large: 40 } }
+  };
+
+  // クランク・スライダ：クランク軸を原点、スライダは x 軸上を動く
+  function crankSlider(r, rod, angle) {
+    var t = rad(angle);
+    var pin = { x: r * Math.cos(t), y: r * Math.sin(t) };
+    var sx = pin.x + Math.sqrt(rod * rod - pin.y * pin.y);
+    return { pin: pin, slider: { x: sx, y: 0 } };
+  }
+
+  // クランク・揺動レバー（4節リンク）：クランク軸 A=原点、レバー軸 D=(ground,0)
+  function crankRocker(a, dims, angle) {
+    var t = rad(angle);
+    var B = { x: a * Math.cos(t), y: a * Math.sin(t) };
+    var D = { x: dims.ground, y: 0 };
+    var ex = B.x - D.x, ey = B.y - D.y;
+    var e = Math.sqrt(ex * ex + ey * ey);
+    var b = dims.coupler, c = dims.lever;
+    var cosG = (c * c + e * e - b * b) / (2 * c * e);
+    if (cosG > 1 || cosG < -1) return null; // つながらない（寸法の誤り）
+    var phi = Math.atan2(ey, ex);
+    var g = Math.acos(cosG);
+    var C = { x: D.x + c * Math.cos(phi + g), y: D.y + c * Math.sin(phi + g) };
+    // レバー角：真上（-90°）からの傾き。右に倒れると正
+    var leverAngle = deg(Math.atan2(C.y - D.y, C.x - D.x)) + 90;
+    return { pin: B, tip: C, pivot: D, leverAngle: leverAngle };
+  }
+
+  // 1回転中の出力の範囲を求める（スライダは移動範囲、レバーは揺動角の範囲）
+  function linkRange(type, size) {
+    var min = Infinity, max = -Infinity, ok = true;
+    for (var a = 0; a < 360; a += 0.5) {
+      var v;
+      if (type === 'slider') {
+        v = crankSlider(LINK.slider.radii[size], LINK.slider.rod, a).slider.x;
+      } else {
+        var p = crankRocker(LINK.rocker.radii[size], LINK.rocker, a);
+        if (!p) { ok = false; break; }
+        v = p.leverAngle;
+      }
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    return { ok: ok, min: min, max: max, span: max - min };
+  }
+
+  // ---------- カム ----------
+
+  var CAM = { base: 45, lift: 30 };
+
+  // カムの回転角に対する従動節の持ち上がり量
+  // A：連続的に上下する形、B：一定位置にとどまる区間がある形
+  function camLift(type, angle) {
+    var t = mod(angle, 360), L = CAM.lift;
+    if (type === 'A') return L * (1 - Math.cos(rad(t))) / 2;
+    if (t < 120) return L * (1 - Math.cos(Math.PI * t / 120)) / 2;       // 上がる
+    if (t < 180) return L;                                               // 上でとどまる
+    if (t < 300) return L * (1 + Math.cos(Math.PI * (t - 180) / 120)) / 2; // 下がる
+    return 0;                                                            // 下でとどまる
+  }
+
+  // カムの輪郭（従動節は真上にある）。回転角0のときの形
+  function camPath(type) {
+    var d = '';
+    for (var a = 0; a <= 360; a += 3) {
+      // 時計回りに θ 回すと、本体の角度 α の点は真上（-90°）に来る：α = -90 - θ
+      var r = CAM.base + camLift(type, -90 - a);
+      var x = r * Math.cos(rad(a)), y = r * Math.sin(rad(a));
+      d += (a === 0 ? 'M' : 'L') + x.toFixed(2) + ' ' + y.toFixed(2);
+    }
+    return d + 'Z';
+  }
+
+  // 1回転中に従動節が止まっている（位置が変わらない）区間の合計角度
+  function camDwell(type) {
+    var total = 0, step = 1;
+    for (var a = 0; a < 360; a += step) {
+      if (Math.abs(camLift(type, a + step) - camLift(type, a)) < 1e-9) total += step;
+    }
+    return total;
+  }
+
+  // ---------- ラックとピニオン ----------
+
+  var RACK = { module: 5, teeth: 12, travel: 140 };
+  RACK.pitchR = RACK.module * RACK.teeth / 2;
+  RACK.maxAngle = deg(RACK.travel / RACK.pitchR); // 端に着くまでの入力角度
+
+  // ピニオンの回転角をラックの移動範囲内に収め、ラックの位置を求める
+  function rackState(angle) {
+    var a = Math.max(-RACK.maxAngle, Math.min(RACK.maxAngle, angle));
+    return {
+      angle: a,
+      x: RACK.pitchR * rad(a),
+      atEnd: Math.abs(a) >= RACK.maxAngle - 1e-9
+    };
+  }
+
+  // ---------- 巻き掛け（ベルト・チェーン） ----------
+
+  // 2つの円にかかる交差しないベルトの経路と全長。中心は同じ高さ（y）にある
+  // 時計回りに一周する向きで、上側の接点（左の円）から始まる
+  function openBeltPath(x1, r1, x2, r2, y) {
+    var D = x2 - x1;
+    var b = Math.asin((r2 - r1) / D);
+    var sb = Math.sin(b), cb = Math.cos(b);
+    var p1t = [x1 - r1 * sb, y - r1 * cb], p2t = [x2 - r2 * sb, y - r2 * cb];
+    var p2b = [x2 - r2 * sb, y + r2 * cb], p1b = [x1 - r1 * sb, y + r1 * cb];
+    var straight = Math.sqrt(D * D - (r2 - r1) * (r2 - r1));
+    var arc2 = r2 * (Math.PI + 2 * b), arc1 = r1 * (Math.PI - 2 * b);
+    var f = function (p) { return p[0].toFixed(2) + ' ' + p[1].toFixed(2); };
+    var d = 'M' + f(p1t) + 'L' + f(p2t) +
+      'A' + r2 + ' ' + r2 + ' 0 ' + (b >= 0 ? 1 : 0) + ' 1 ' + f(p2b) +
+      'L' + f(p1b) +
+      'A' + r1 + ' ' + r1 + ' 0 ' + (b >= 0 ? 0 : 1) + ' 1 ' + f(p1t) + 'Z';
+    return { d: d, length: 2 * straight + arc1 + arc2 };
+  }
+
+  // ベルトの全長がピッチの整数倍になる軸間距離を、目安の距離の近くで探す
+  function fitCenterDistance(r1, r2, target, pitch) {
+    var len = function (D) { return openBeltPath(0, r1, D, r2, 0).length; };
+    var n = Math.round(len(target) / pitch);
+    var lo = target * 0.7, hi = target * 1.3;
+    for (var i = 0; i < 60; i++) {
+      var mid = (lo + hi) / 2;
+      if (len(mid) < n * pitch) lo = mid; else hi = mid;
+    }
+    return (lo + hi) / 2;
+  }
+
+  return {
+    INPUT_RPM: INPUT_RPM, INPUT_TORQUE: INPUT_TORQUE, IDLER_TEETH: IDLER_TEETH,
+    TEETH_CHOICES: TEETH_CHOICES, LINK: LINK, CAM: CAM, RACK: RACK,
+    rad: rad, deg: deg, mod: mod, fmt: fmt,
+    gearTrain: gearTrain, gearAngles: gearAngles, gearPath: gearPath,
+    parseNumber: parseNumber, checkCalc: checkCalc,
+    crankSlider: crankSlider, crankRocker: crankRocker, linkRange: linkRange,
+    camLift: camLift, camPath: camPath, camDwell: camDwell,
+    rackState: rackState, openBeltPath: openBeltPath, fitCenterDistance: fitCenterDistance
+  };
+})();
+
+if (typeof module !== 'undefined') module.exports = Sim;
