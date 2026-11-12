@@ -250,7 +250,39 @@ var Sim = (function () {
     return (lo + hi) / 2;
   }
 
+  // ---------- ⑦の提出前の確認（サーバーの validateSubmission と同じ規則。最終的な判定はサーバーで行う） ----------
+
+  // 名簿番号をそろえる（全角数字・前後の空白・先頭のゼロ）。正の整数でなければ null
+  function normalizeRosterNumber(v) {
+    var t = String(v === null || v === undefined ? '' : v)
+      .replace(/[０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+      .replace(/^[\s\u3000]+|[\s\u3000]+$/g, '');
+    if (!/^\d+$/.test(t)) return null;
+    var n = parseInt(t, 10);
+    return n >= 1 ? n : null;
+  }
+
+  // 提出する前に、足りない・正しくない項目を調べる。cfg はサーバーから受け取った設定
+  function checkSummaryInput(p, cfg) {
+    var errors = [];
+    if (cfg.classCodes.indexOf(String(p.classCode || '')) < 0) errors.push('クラスコードを選んでください。');
+    if (normalizeRosterNumber(p.number) === null) errors.push('名簿番号は 1 以上の数字で入力してください。');
+    if (!String(p.learned || '').trim()) errors.push('「試して分かったこと」を書いてください。');
+    if (!String(p.reason || '').trim()) errors.push('「生活の中で使われる理由」を書いてください。');
+    if (String(p.learned || '').length > cfg.textMax || String(p.reason || '').length > cfg.textMax) {
+      errors.push('記述は1つの欄につき ' + cfg.textMax + ' 文字以内にしてください。');
+    }
+    var missing = [];
+    for (var i = 0; i < cfg.quiz.length; i++) {
+      var a = p.answers && p.answers[i];
+      if (!(typeof a === 'number' && a >= 0 && a < cfg.quiz[i].opts.length)) missing.push('問' + (i + 1));
+    }
+    if (missing.length) errors.push('小テストの ' + missing.join('・') + ' に答えてください。');
+    return { ok: errors.length === 0, errors: errors };
+  }
+
   return {
+    normalizeRosterNumber: normalizeRosterNumber, checkSummaryInput: checkSummaryInput,
     INPUT_RPM: INPUT_RPM, INPUT_TORQUE: INPUT_TORQUE, IDLER_TEETH: IDLER_TEETH,
     TEETH_CHOICES: TEETH_CHOICES, LINK: LINK, CAM: CAM, RACK: RACK,
     rad: rad, deg: deg, mod: mod, fmt: fmt,

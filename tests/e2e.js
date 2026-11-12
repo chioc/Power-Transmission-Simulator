@@ -1,4 +1,4 @@
-// 画面の動作確認（仕様書「7」の受け入れテスト No.1〜8・9a〜9c・10 を自動で操作する）
+// 画面の動作確認（仕様書「7」の受け入れテスト No.1〜8・9a〜9h・10 を自動で操作する。9c〜9h は画面側の動き）
 // 実行：npm run preview の後に node tests/e2e.js
 // GAS 上ではなく、include を展開した dist/preview.html をブラウザで開いて確かめる。
 'use strict';
@@ -11,7 +11,6 @@ const URL = 'file://' + path.join(__dirname, '..', 'dist', 'preview.html');
 async function run(label, contextOptions) {
   const browser = await chromium.launch();
   const ctx = await browser.newContext(contextOptions);
-  await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'null' }).catch(() => ctx.grantPermissions(['clipboard-read', 'clipboard-write']));
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -28,6 +27,24 @@ async function run(label, contextOptions) {
     try { await fn(); results.push([no, 'OK']); } catch (e) { results.push([no, 'NG: ' + e.message.split('\n')[0]]); }
   };
 
+  // google.script.run の代わり（submitSummary の応答を __mockMode で切り替える）
+  await page.addInitScript(() => {
+    window.__submits = []; window.__okCount = 0; window.__mockMode = 'ok'; window.__mockDelay = 30;
+    const runner = (ok, ng) => ({
+      withSuccessHandler: (fn) => runner(fn, ng),
+      withFailureHandler: (fn) => runner(ok, fn),
+      submitSummary(p) {
+        window.__submits.push(JSON.parse(JSON.stringify(p)));
+        const mode = window.__mockMode;
+        setTimeout(() => {
+          if (mode === 'fail') ng(new Error('network'));
+          else if (mode === 'roster') ok({ ok: false, code: 'ROSTER', message: 'クラスコード・名簿番号・学校アカウントを確認してください。' });
+          else { window.__okCount++; ok({ ok: true, resubmitted: window.__okCount > 1, savedAt: '11月12日 9:00' }); }
+        }, window.__mockDelay);
+      }
+    });
+    window.google = { script: { get run() { return runner(() => {}, () => {}); } } };
+  });
   await page.goto(URL);
 
   await check('No.1 画面の移動', async () => {
@@ -197,20 +214,87 @@ async function run(label, contextOptions) {
     assert.equal(await page.inputValue('#tReason'), '自転車のテスト');
   });
 
-  await check('No.9c 2欄をコピーできる・氏名入力や提出がない', async () => {
-    assert.equal(await page.locator('input[type=text], input[type=email]').count(), 0, '氏名などの入力欄がない');
-    await page.fill('#tLearned', 'チェーンがスプロケットの歯にかみ合って進み、離れた軸が同じ向きに回った');
-    await page.fill('#tReason', '自転車では、チェーンとスプロケットを使って、ペダル側の回転を離れた後輪に伝えている。');
-    await press(page.locator('.hint summary'));
-    assert.ok(await page.locator('.hint p').isVisible(), '記述例のヒントが開く');
-    await press(btn('まとめてコピー'));
-    await page.waitForFunction(() => document.querySelector('[data-k="copyMsg"]').textContent !== '', null, { timeout: 5000 });
-    assert.match(await page.locator('[data-k="copyMsg"]').innerText(), /コピーしました/);
-    assert.match(await page.evaluate(() => navigator.clipboard.readText()), /生活の中で使われる理由\n自転車では/);
-    const all = await page.inputValue('#tAll');
-    assert.match(all, /試して分かったこと\nチェーンがスプロケット/);
-    assert.match(all, /生活の中で使われる理由\n自転車では/);
-    assert.doesNotMatch(all, /問1|正解/, 'コピーに小テストの結果は含めない');
+  // ---- 9c〜9h（画面側）：サーバーの代わりに、決まった応答を返す模型を使う。サーバー側の判定は tests/submit.test.js で確認 ----
+  const submits = () => page.evaluate(() => window.__submits.length);
+  const lastPayload = () => page.evaluate(() => window.__submits[window.__submits.length - 1]);
+  const msg = () => page.locator('[data-k="submitMsg"]').innerText();
+
+  await check('No.9c 提出（画面）', async () => {
+    const opts = await page.locator('#selClass option').allInnerTexts();
+    assert.deepEqual(opts, ['選んでください', '201', '202', '203', '204']);
+    assert.match(await page.locator('.step').nth(2).innerText(), /学校のGoogleアカウントと名簿を照合して提出します/);
+    for (const [i, k] of [[0, 1], [1, 1], [2, 2], [3, 0]]) await press(page.locator(`[data-fq="${i}"][data-opt="${k}"]`));
+    await page.fill('#tLearned', 'チェーンがスプロケットの歯にかみ合って進んだ');
+    await page.fill('#tReason', '自転車では、チェーンとスプロケットを使っている');
+    await page.selectOption('#selClass', '201');
+    await page.fill('#inNumber', '1');
+    await page.evaluate(() => { window.__mockDelay = 400; });
+    await press(btn('提出する'));
+    assert.equal(await page.locator('[data-k="submit"]').isDisabled(), true, '送信中はボタンが押せない');
+    assert.match(await msg(), /送信しています/);
+    await page.waitForFunction(() => /提出しました/.test(document.querySelector('[data-k="submitMsg"]').innerText));
+    assert.match(await msg(), /提出しました（11月12日 9:00）/);
+    const p = await lastPayload();
+    assert.deepEqual(Object.keys(p).sort(), ['answers', 'classCode', 'learned', 'number', 'reason'], 'メールや得点は送らない');
+    assert.deepEqual(p.answers, [1, 1, 2, 0]);
+    await page.evaluate(() => { window.__mockDelay = 30; });
+  });
+
+  await check('No.9d 再提出（画面）', async () => {
+    await page.fill('#tLearned', '書き直した');
+    assert.match(await msg(), /変更はまだ提出されていません/);
+    await press(page.locator('[data-fq="1"][data-opt="0"]'));
+    await page.fill('#inNumber', '０１');
+    await press(btn('提出する'));
+    await page.waitForFunction(() => /再提出しました/.test(document.querySelector('[data-k="submitMsg"]').innerText));
+    assert.equal((await lastPayload()).number, '０１');
+    assert.doesNotMatch(await msg(), /まだ提出されていません/);
+  });
+
+  await check('No.9e 照合できないとき（画面）', async () => {
+    await page.evaluate(() => { window.__mockMode = 'roster'; });
+    await page.fill('#inNumber', '2');
+    await press(btn('提出する'));
+    await page.waitForFunction(() => /確認してください/.test(document.querySelector('[data-k="submitMsg"]').innerText));
+    const t = await msg();
+    assert.match(t, /クラスコード・名簿番号・学校アカウントを確認してください/);
+    assert.match(t, /変更はまだ提出されていません/, '前回の提出から変わっていることも示す');
+    assert.equal(await page.inputValue('#tLearned'), '書き直した');
+    assert.equal(await page.locator('[data-fq="1"][data-opt="0"]').getAttribute('aria-pressed'), 'true');
+  });
+
+  await check('No.9h 保存の失敗と再試行（画面）', async () => {
+    await page.evaluate(() => { window.__mockMode = 'fail'; });
+    await page.fill('#inNumber', '1');
+    await page.fill('#tReason', '=1+1\n2行目');
+    await press(btn('提出する'));
+    await page.waitForFunction(() => /提出できませんでした/.test(document.querySelector('[data-k="submitMsg"]').innerText));
+    assert.doesNotMatch(await msg(), /提出しました/);
+    assert.equal(await page.inputValue('#tReason'), '=1+1\n2行目');
+    await page.evaluate(() => { window.__mockMode = 'ok'; });
+    await press(btn('提出する')); // 入力を直さずにもう一度
+    await page.waitForFunction(() => /再提出しました/.test(document.querySelector('[data-k="submitMsg"]').innerText));
+    assert.equal((await lastPayload()).reason, '=1+1\n2行目');
+  });
+
+  await check('No.9f 不足・不正の項目（画面）', async () => {
+    await page.reload(); // 何も入力していない状態から
+    await press(page.locator('.card-btn', { hasText: '⑦ まとめ課題' }));
+    const before = await submits();
+    await press(btn('提出する'));
+    let t = await msg();
+    for (const w of ['クラスコード', '名簿番号は 1 以上', '試して分かったこと', '生活の中で使われる理由', '問1・問2・問3・問4']) assert.ok(t.includes(w), w + ' が示されない');
+    assert.equal(await submits(), before, '送信されない');
+    await page.fill('#inNumber', '0');
+    await press(btn('提出する'));
+    assert.match(await msg(), /名簿番号は 1 以上/);
+    // 誤答を含む全問回答で提出できる
+    for (let i = 0; i < 4; i++) await press(page.locator(`[data-fq="${i}"][data-opt="${i === 2 ? 0 : 2}"]`));
+    await page.fill('#tLearned', 'a'); await page.fill('#tReason', 'b');
+    await page.selectOption('#selClass', '203'); await page.fill('#inNumber', '5');
+    await press(btn('提出する'));
+    await page.waitForFunction(() => /提出しました/.test(document.querySelector('[data-k="submitMsg"]').innerText));
+    assert.equal(await page.locator('input[type=email]').count(), 0);
   });
 
   await check('No.10 操作部と図が重ならない・計算値が低速で変わらない', async () => {
