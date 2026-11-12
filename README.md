@@ -23,3 +23,11 @@
 3. GitHub の Settings → Secrets and variables → Actions に登録する
    - `CLASPRC_JSON`：`clasp login` で作られる `~/.clasprc.json` の中身
    - `GAS_DEPLOYMENT_ID`：GAS の「デプロイを管理」で作成した本番用 Web アプリのデプロイID（本番デプロイ時のみ必要）
+
+## 手元での確認（GAS に反映されない）
+
+```bash
+npm test                # 計算処理のテスト（Node.js）
+npm run preview         # dist/preview.html を作成（GAS の画面と同じ HTML）
+node tests/e2e.js       # 受け入れテスト No.1〜10 を PC・iPad 相当で自動操作（Playwright が必要）
+```

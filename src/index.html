@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>動力伝達・運動変換シミュレーター</title>
+  <style>
+<?!= include('css'); ?>
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <button type="button" class="btn topbtn" id="homeBtn">ホーム</button>
+    <span class="apptitle">動力伝達・運動変換シミュレーター</span>
+    <button type="button" class="btn topbtn accent" id="summaryBackBtn" hidden>まとめ課題に戻る</button>
+  </header>
+  <main id="app"></main>
+  <noscript>このページを使うには JavaScript を有効にしてください。</noscript>
+  <script>
+<?!= include('logic'); ?>
+  </script>
+  <script>
+<?!= include('app'); ?>
+  </script>
+</body>
+</html>
