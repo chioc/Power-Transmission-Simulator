@@ -20,7 +20,7 @@
     quiz: {},        // 確認問題の選択と結果
     calc: { ratio: '', rpm: '', result: null, key: '' },
     fromSummary: false,
-    summary: { task: '', mech: '', reason: '', learned: '', adjust: '' }
+    summary: { answers: [null, null, null, null], results: [], learned: '', reason: '' }
   };
 
   // ---------- 小さな道具 ----------
@@ -779,7 +779,7 @@
       '<\/div><\/section>' +
       '<section class="course"><h2>ほかの機構・まとめ<\/h2><div class="course-grid">' +
       card('list', '⑥ 教科書の機構を見る', '傘歯車・ベルト・チェーン・ラックなど7種類') +
-      card('summary', '⑦ まとめ課題', '機構を選んで試し、理由を書く') +
+      card('summary', '⑦ まとめ課題', '小テストと、生活の中の機構の説明') +
       '<\/div><\/section>';
   }
   function card(go, title, sub) {
@@ -942,92 +942,126 @@
     mountSim(app.querySelector('[data-k="sim"]'), mc.scene());
   }
 
-  // ⑦ まとめ課題
-  var TASKS = ['モーターを回し続けて、部品を一定の間隔で押し出す', 'モーターを回し続けて、アームを左右に振る'];
-  var SUMMARY_MECHS = [
-    { id: 'gear', name: '平歯車（②）', go: 'gear2' },
-    { id: 'slider', name: 'クランク・スライダ（④）', go: 'link', link: 'slider' },
-    { id: 'rocker', name: 'クランク・揺動レバー（④）', go: 'link', link: 'rocker' },
-    { id: 'camA', name: 'カム 形A（⑤）', go: 'cam', cam: 'A' },
-    { id: 'camB', name: 'カム 形B（⑤）', go: 'cam', cam: 'B' }
-  ].concat(MECHS.map(function (mc) { return { id: mc.id, name: mc.name + '（⑥）', go: 'mech', mech: mc.id }; }));
+  // ⑦ まとめ課題：小テスト「機構の特徴を確かめよう」（選択式4問）と、振り返り「生活の中の機構を説明しよう」（2欄）
+  // 問題・選択肢・解説は仕様書「3. ⑦ まとめ課題」の表のとおり。ref は「実験・観察に戻る」で開く画面
+  var FINAL_QUIZ = [
+    { q: '離れた2つの軸に、歯とかみ合わせて回転を伝える組合せはどれか',
+      opts: ['摩擦車', 'チェーンとスプロケット', 'ラックとピニオン'], ans: 1,
+      exp: 'チェーンが両方のスプロケットとかみ合い、離れた軸へ回転を伝える。',
+      ref: { label: '⑥ 教科書の機構を見る', go: 'list' } },
+    { q: '入力軸の回転数・トルクと入力側の歯数を同じにして、平歯車の出力側を20歯から40歯にするとどうなるか',
+      opts: ['回転数は小さく、理想トルクは大きくなる', '両方小さくなる', '回転数は大きく、理想トルクは小さくなる'], ans: 0,
+      exp: '回転数は半分、損失を無視した理想トルクは2倍になる。',
+      ref: { label: '② 平歯車の速さとトルク', go: 'gear2' } },
+    { q: 'クランク・スライダでクランクの半径を大きくすると、スライダの往復する範囲はどうなるか',
+      opts: ['小さくなる', '同じ', '大きくなる'], ans: 2,
+      exp: 'クランクの回転中心から連結点までの距離が伸び、往復の幅が広がる。',
+      ref: { label: '④ リンクの実験', go: 'link', link: 'slider' } },
+    { q: '入力軸を回し続けても、押す部品が一定の位置にとどまる時間をつくりたい。何を変えるとよいか',
+      opts: ['カムを、従動節が一定位置にとどまる区間のある形に替える', 'カムを同じ形のまま速く回す', 'カムを同じ形のまま逆に回す'], ans: 0,
+      exp: 'カムの形で従動節の動き方が変わり、一定位置を保つ区間を設けられる。',
+      ref: { label: '⑤ カムの実験', go: 'cam' } }
+  ];
 
-  // 選んだ機構の、いまの設定を文章にする
-  function settingText(id) {
-    var g = state.gear, L = state.link;
-    if (id === 'gear') return '入力' + g.inTeeth + '歯・出力' + g.outTeeth + '歯・中間歯車' + (g.idler ? 'あり' : 'なし');
-    if (id === 'slider' || id === 'rocker') return 'クランクの半径：' + (L.size === 'small' ? '小' : '大');
-    return '';
-  }
+  // コピー用の文章（振り返りの2欄だけ。小テストの結果は含めない）
   function summaryText() {
-    var sm = state.summary, mech = null;
-    SUMMARY_MECHS.forEach(function (x) { if (x.id === sm.mech) mech = x; });
-    var st = mech ? settingText(mech.id) : '';
-    return '【まとめ課題】' + (sm.task !== '' ? TASKS[Number(sm.task)] : '（課題を選んでいません）') + '\n' +
-      '選んだ機構：' + (mech ? mech.name.replace(/（.）$/, '') + (st ? '（' + st + '）' : '') : '（選んでいません）') + '\n' +
-      '■選んだ機構と理由\n' + sm.reason + '\n' +
+    var sm = state.summary;
+    return '【振り返り】生活の中の機構を説明しよう\n' +
       '■試して分かったこと\n' + sm.learned + '\n' +
-      '■調整した点と理由\n' + sm.adjust + '\n';
+      '■生活の中で使われる理由\n' + sm.reason + '\n';
+  }
+
+  // 小テストの1問分の表示
+  function finalQuizItemHtml(i) {
+    var fq = FINAL_QUIZ[i], sm = state.summary, sel = sm.answers[i], res = sm.results[i];
+    var s = '<div class="fq"><p><strong>問' + (i + 1) + '<\/strong>　' + esc(fq.q) + '<\/p><div class="choices">';
+    fq.opts.forEach(function (o, k) {
+      s += '<button type="button" class="btn choice" data-fq="' + i + '" data-opt="' + k + '" aria-pressed="' + (sel === k) + '">' + esc(o) + '<\/button>';
+    });
+    s += '<\/div>';
+    if (res === 'ok') s += '<p class="feedback ok"><strong>○ 正解<\/strong><br>理由：' + esc(fq.exp) + '<\/p>';
+    else if (res === 'ng') s += '<p class="feedback ng"><strong>× 不正解<\/strong><br>理由：' + esc(fq.exp) + '<\/p>';
+    else if (res === 'none') s += '<p class="feedback info">未解答です。選んでから、もう一度「答え合わせ」を押せます。<\/p>';
+    s += '<button type="button" class="btn" data-ref="' + i + '">実験・観察に戻る（' + esc(fq.ref.label) + '）<\/button><\/div>';
+    return s;
   }
 
   function renderSummary() {
     state.fromSummary = false;
     var sm = state.summary;
     var s = '<h2>⑦ まとめ課題<\/h2>' +
-      '<p class="warn">ここに書いた内容は、このページを開いている間だけ残ります。<strong>ページを再読み込みしたり、タブを閉じたりすると消えます。<\/strong>書き終えたら下の「まとめてコピー」を使い、先生が指定した提出先に貼り付けてください。<\/p>' +
-      '<div class="field"><span class="label">1. 課題を選ぶ<\/span><div class="choices">';
-    TASKS.forEach(function (t, i) {
-      s += '<button type="button" class="btn choice" data-task="' + i + '" aria-pressed="' + (sm.task === String(i)) + '">' + esc(t) + '<\/button>';
-    });
-    s += '<\/div><\/div>' +
-      '<div class="field"><label for="mechSel">2. 機構を選んで試す<\/label>' +
-      '<select id="mechSel"><option value="">（機構を選ぶ）<\/option>';
-    SUMMARY_MECHS.forEach(function (x) { s += '<option value="' + x.id + '"' + (sm.mech === x.id ? ' selected' : '') + '>' + esc(x.name) + '<\/option>'; });
-    s += '<\/select><p class="note" data-k="mechNote"><\/p>' +
-      '<button type="button" class="btn primary" data-k="try">この機構を試す →<\/button>' +
-      '<p class="note">試したあとは、画面上の「まとめ課題に戻る」を押すと、ここに戻れます。<\/p><\/div>' +
-      '<div class="field"><label for="tReason">3. 選んだ機構と理由<\/label><textarea id="tReason" data-f="reason"><\/textarea><\/div>' +
-      '<div class="field"><label for="tLearned">4. 試して分かったこと<\/label><textarea id="tLearned" data-f="learned"><\/textarea><\/div>' +
-      '<div class="field"><label for="tAdjust">5. 調整した点と理由<\/label><textarea id="tAdjust" data-f="adjust"><\/textarea><\/div>' +
-      '<div class="field"><label for="tAll">まとめてコピー（提出用）<\/label>' +
-      '<textarea id="tAll" class="copy-area" readonly><\/textarea>' +
-      '<div class="controls" style="margin-top:8px"><button type="button" class="btn primary" data-k="copy">まとめてコピー<\/button><\/div>' +
-      '<p class="note" data-k="copyMsg" aria-live="polite"><\/p><\/div>' +
-      '<p class="note">氏名などの個人情報は、ここには書かないでください。<\/p>' +
+      '<p class="warn">ここで選んだ答えや書いた内容は、このページを開いている間だけ残ります。<strong>ページを再読み込みしたり、タブを閉じたりすると消えます。<\/strong>振り返りを書き終えたら「まとめてコピー」を使い、先生が指定した提出先に貼り付けてください。<\/p>' +
+      stepHtml(1, '小テスト「機構の特徴を確かめよう」',
+        '<p class="note">答えを選んで「答え合わせ」を押そう。分からないときは「実験・観察に戻る」で確かめてから選び直せます。答えていない問題があっても、下の振り返りは書けます。<\/p>' +
+        '<div data-k="fq"><\/div>' +
+        '<button type="button" class="btn primary" data-k="fqCheck">答え合わせ<\/button>' +
+        '<p class="note" data-k="fqScore" aria-live="polite"><\/p>') +
+      stepHtml(2, '振り返り「生活の中の機構を説明しよう」',
+        '<div class="field"><label for="tLearned">試して分かったこと<\/label>' +
+        '<p class="note">機構を一つ選び、どこを動かしたり変えたりして、どんな動きが見られたかを書こう。⑥の機構は、動かして観察したことを書いてもよい。<\/p>' +
+        '<textarea id="tLearned" data-f="learned"><\/textarea><\/div>' +
+        '<div class="field"><label for="tReason">生活の中で使われる理由<\/label>' +
+        '<p class="note">身近な製品を一つ挙げ、どこにどんな機構が使われていて、その特徴がどんな役に立つかを書こう。<\/p>' +
+        '<p class="formula">書き方の例：「［製品］では、［機構］を使って［どんな動き］を実現している。［機構の特徴］があるため、［製品で果たす役割］に役立つ。」<\/p>' +
+        '<details class="hint"><summary>ヒント：記述例を見る<\/summary>' +
+        '<p>「自転車では、チェーンとスプロケットを使って、ペダル側の回転を離れた後輪に伝えている。」<\/p><\/details>' +
+        '<textarea id="tReason" data-f="reason"><\/textarea><\/div>' +
+        '<div class="field"><label for="tAll">まとめてコピー（提出用）<\/label>' +
+        '<textarea id="tAll" class="copy-area" readonly><\/textarea>' +
+        '<div class="controls" style="margin-top:8px"><button type="button" class="btn primary" data-k="copy">まとめてコピー<\/button><\/div>' +
+        '<p class="note" data-k="copyMsg" aria-live="polite"><\/p><\/div>' +
+        '<p class="note">振り返りは先生が読んで確認します（自動の採点はありません）。氏名などの個人情報は書かないでください。<\/p>') +
       pagerHtml(['home', '← ホーム'], null);
     app.innerHTML = s;
+
+    var q = function (k) { return app.querySelector('[data-k="' + k + '"]'); };
     var all = app.querySelector('#tAll');
-    var refreshAll = function () {
-      all.value = summaryText();
-      var note = app.querySelector('[data-k="mechNote"]');
-      var st = sm.mech ? settingText(sm.mech) : '';
-      note.textContent = st ? 'いまの設定：' + st : '';
-      app.querySelector('[data-k="try"]').disabled = !sm.mech;
-    };
-    app.querySelectorAll('[data-task]').forEach(function (b) {
-      b.addEventListener('click', function () {
-        sm.task = b.getAttribute('data-task');
-        app.querySelectorAll('[data-task]').forEach(function (x) { x.setAttribute('aria-pressed', String(x === b)); });
-        refreshAll();
+
+    // 小テストの表示を作り直す（振り返りの欄には触れない）
+    var drawQuiz = function () {
+      var box = q('fq'), h = '';
+      FINAL_QUIZ.forEach(function (_, i) { h += finalQuizItemHtml(i); });
+      box.innerHTML = h;
+      box.querySelectorAll('[data-fq]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var i = Number(b.getAttribute('data-fq'));
+          sm.answers[i] = Number(b.getAttribute('data-opt'));
+          sm.results[i] = undefined; // 選び直したら、その問の判定はいったん消す
+          drawQuiz();
+        });
       });
+      box.querySelectorAll('[data-ref]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var ref = FINAL_QUIZ[Number(b.getAttribute('data-ref'))].ref;
+          if (ref.link) state.link.type = ref.link;
+          state.fromSummary = true;
+          go(ref.go);
+        });
+      });
+      var checked = sm.results.filter(function (r) { return r !== undefined; }).length;
+      if (checked) {
+        var ok = sm.results.filter(function (r) { return r === 'ok'; }).length;
+        var none = sm.results.filter(function (r) { return r === 'none'; }).length;
+        q('fqScore').textContent = FINAL_QUIZ.length + '問中 ' + ok + '問 正解' + (none ? '（未解答 ' + none + '問）' : '') + '。理由を読んで、実験・観察でも確かめてみよう。';
+      } else {
+        q('fqScore').textContent = '';
+      }
+    };
+    q('fqCheck').addEventListener('click', function () {
+      FINAL_QUIZ.forEach(function (fq, i) {
+        var a = sm.answers[i];
+        sm.results[i] = a === null || a === undefined ? 'none' : a === fq.ans ? 'ok' : 'ng';
+      });
+      drawQuiz();
     });
+    drawQuiz();
+
     app.querySelectorAll('[data-f]').forEach(function (ta) {
       ta.value = sm[ta.getAttribute('data-f')];
-      ta.addEventListener('input', function () { sm[ta.getAttribute('data-f')] = ta.value; refreshAll(); });
+      ta.addEventListener('input', function () { sm[ta.getAttribute('data-f')] = ta.value; all.value = summaryText(); });
     });
-    var sel = app.querySelector('#mechSel');
-    sel.addEventListener('change', function () { sm.mech = sel.value; refreshAll(); });
-    app.querySelector('[data-k="try"]').addEventListener('click', function () {
-      var x = null;
-      SUMMARY_MECHS.forEach(function (m) { if (m.id === sm.mech) x = m; });
-      if (!x) return;
-      if (x.link) state.link.type = x.link;
-      if (x.cam) state.cam.type = x.cam;
-      state.fromSummary = true;
-      go(x.go, x.mech ? { id: x.mech, from: 'list' } : {});
-    });
-    app.querySelector('[data-k="copy"]').addEventListener('click', function () {
-      var msg = app.querySelector('[data-k="copyMsg"]');
+    q('copy').addEventListener('click', function () {
+      var msg = q('copyMsg');
       var done = function () { msg.textContent = 'コピーしました。提出先に貼り付けてください。'; };
       var fallback = function () {
         all.focus(); all.select();
@@ -1039,7 +1073,7 @@
         navigator.clipboard.writeText(all.value).then(done, fallback);
       } else { fallback(); }
     });
-    refreshAll();
+    all.value = summaryText();
   }
 
   // ---------- 画面の切り替え ----------

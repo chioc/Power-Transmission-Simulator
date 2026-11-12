@@ -1,4 +1,4 @@
-// 画面の動作確認（仕様書「7」の受け入れテスト No.1〜10 を自動で操作する）
+// 画面の動作確認（仕様書「7」の受け入れテスト No.1〜8・9a〜9c・10 を自動で操作する）
 // 実行：npm run preview の後に node tests/e2e.js
 // GAS 上ではなく、include を展開した dist/preview.html をブラウザで開いて確かめる。
 'use strict';
@@ -11,6 +11,7 @@ const URL = 'file://' + path.join(__dirname, '..', 'dist', 'preview.html');
 async function run(label, contextOptions) {
   const browser = await chromium.launch();
   const ctx = await browser.newContext(contextOptions);
+  await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'null' }).catch(() => ctx.grantPermissions(['clipboard-read', 'clipboard-write']));
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -158,23 +159,58 @@ async function run(label, contextOptions) {
     assert.notEqual(a1[0], a2[0]);
   });
 
-  await check('No.9 まとめ課題の記述が残る', async () => {
+  await check('No.9a 小テストの正誤と理由', async () => {
     await press(page.locator('#homeBtn'));
     await press(page.locator('.card-btn', { hasText: '⑦ まとめ課題' }));
-    assert.equal(await page.locator('input[type=text], input[type=email]').count(), 0, '氏名などの入力欄がない');
-    await press(page.locator('[data-task="0"]'));
-    await page.selectOption('#mechSel', 'camB');
-    await page.fill('#tReason', '理由のテスト');
-    await page.fill('#tLearned', '分かったことのテスト');
-    await page.fill('#tAdjust', '調整のテスト');
-    await press(btn('この機構を試す →'));
+    assert.equal(await page.locator('.fq').count(), 4);
+    await press(page.locator('[data-fq="0"][data-opt="1"]'));   // 問1 正答
+    await press(page.locator('[data-fq="1"][data-opt="1"]'));   // 問2「両方小さくなる」（誤答）
+    await press(page.locator('[data-fq="2"][data-opt="2"]'));   // 問3 正答（問4は未解答）
+    await press(btn('答え合わせ'));
+    const items = page.locator('.fq');
+    assert.match(await items.nth(0).innerText(), /○ 正解[\s\S]*理由：チェーン/);
+    const q2 = await items.nth(1).innerText();
+    assert.match(q2, /× 不正解/); assert.match(q2, /回転数は半分/); assert.match(q2, /理想トルクは2倍/);
+    assert.match(await items.nth(2).innerText(), /○ 正解/);
+    assert.match(await items.nth(3).innerText(), /未解答/);
+    assert.match(await page.locator('[data-k="fqScore"]').innerText(), /4問中 2問 正解（未解答 1問）/);
+  });
+
+  await check('No.9b 未解答のまま記入し、実験・観察に戻っても残る', async () => {
+    await page.fill('#tLearned', 'チェーンの観察テスト');
+    await page.fill('#tReason', '自転車のテスト');
+    // 問4（未解答）の参照先：⑤カム
+    await press(page.locator('[data-ref="3"]'));
     assert.equal(await page.locator('h2').first().innerText(), '⑤ カムの実験');
-    assert.equal(await page.locator('[data-set="type"][data-val="B"]').getAttribute('aria-pressed'), 'true');
     await press(page.locator('#summaryBackBtn'));
-    assert.equal(await page.inputValue('#tReason'), '理由のテスト');
-    assert.equal(await page.inputValue('#tAdjust'), '調整のテスト');
+    assert.equal(await page.inputValue('#tLearned'), 'チェーンの観察テスト');
+    assert.equal(await page.inputValue('#tReason'), '自転車のテスト');
+    assert.equal(await page.locator('[data-fq="1"][data-opt="1"]').getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.locator('[data-fq="0"][data-opt="1"]').getAttribute('aria-pressed'), 'true');
+    // 問1の参照先：⑥、問3の参照先：④（クランク・スライダ）
+    await press(page.locator('[data-ref="0"]'));
+    assert.equal(await page.locator('h2').first().innerText(), '⑥ 教科書の機構を見る');
+    await press(page.locator('#summaryBackBtn'));
+    await press(page.locator('[data-ref="2"]'));
+    assert.equal(await page.locator('[data-set="type"][data-val="slider"]').getAttribute('aria-pressed'), 'true');
+    await press(page.locator('#summaryBackBtn'));
+    assert.equal(await page.inputValue('#tReason'), '自転車のテスト');
+  });
+
+  await check('No.9c 2欄をコピーできる・氏名入力や提出がない', async () => {
+    assert.equal(await page.locator('input[type=text], input[type=email]').count(), 0, '氏名などの入力欄がない');
+    await page.fill('#tLearned', 'チェーンがスプロケットの歯にかみ合って進み、離れた軸が同じ向きに回った');
+    await page.fill('#tReason', '自転車では、チェーンとスプロケットを使って、ペダル側の回転を離れた後輪に伝えている。');
+    await press(page.locator('.hint summary'));
+    assert.ok(await page.locator('.hint p').isVisible(), '記述例のヒントが開く');
+    await press(btn('まとめてコピー'));
+    await page.waitForFunction(() => document.querySelector('[data-k="copyMsg"]').textContent !== '', null, { timeout: 5000 });
+    assert.match(await page.locator('[data-k="copyMsg"]').innerText(), /コピーしました/);
+    assert.match(await page.evaluate(() => navigator.clipboard.readText()), /生活の中で使われる理由\n自転車では/);
     const all = await page.inputValue('#tAll');
-    assert.match(all, /部品を一定の間隔で押し出す/); assert.match(all, /カム 形B/); assert.match(all, /分かったことのテスト/);
+    assert.match(all, /試して分かったこと\nチェーンがスプロケット/);
+    assert.match(all, /生活の中で使われる理由\n自転車では/);
+    assert.doesNotMatch(all, /問1|正解/, 'コピーに小テストの結果は含めない');
   });
 
   await check('No.10 操作部と図が重ならない・計算値が低速で変わらない', async () => {
