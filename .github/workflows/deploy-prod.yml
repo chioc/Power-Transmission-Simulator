@@ -33,7 +33,7 @@ jobs:
       - name: clasp をインストール
         run: npm install -g @google/clasp@2.4.2
 
-      - name: clasp の認証情報を配置（GitHub Secrets: CLASPRC_JSON）
+      - name: "clasp の認証情報を配置（GitHub Secrets: CLASPRC_JSON）"
         env:
           CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
         run: |
@@ -46,7 +46,7 @@ jobs:
       - name: 最新のコードを GAS に反映（clasp push）
         run: clasp push --force
 
-      - name: 本番デプロイを更新（GitHub Secrets: GAS_DEPLOYMENT_ID）
+      - name: "本番デプロイを更新（GitHub Secrets: GAS_DEPLOYMENT_ID）"
         env:
           DEPLOYMENT_ID: ${{ secrets.GAS_DEPLOYMENT_ID }}
           DESCRIPTION: ${{ github.event.inputs.description }}
