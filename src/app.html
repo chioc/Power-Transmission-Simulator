@@ -1,3 +1,4 @@
+<script>
 // ===== 画面の表示と操作 =====
 // 画面はこの1ページの中で切り替える。設定や記述はこのページを開いている間だけメモリに残る
 // （再読み込み・タブを閉じると消える。仕様書「4. データ構造」）。
@@ -44,18 +45,18 @@
   function markerDefs(uid) {
     var mk = function (k, color) {
       return '<marker id="ah-' + k + '-' + uid + '" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">' +
-        '<path d="M0 0L10 5L0 10z" fill="' + color + '"/></marker>';
+        '<path d="M0 0L10 5L0 10z" fill="' + color + '"/><\/marker>';
     };
-    return '<defs>' + mk('in', C.input) + mk('out', C.output) + mk('oth', C.other) + '</defs>';
+    return '<defs>' + mk('in', C.input) + mk('out', C.output) + mk('oth', C.other) + '<\/defs>';
   }
   function text(x, y, str, color, opt) {
     opt = opt || {};
     return '<text x="' + x + '" y="' + y + '" fill="' + (color || C.ink) + '" font-size="' + (opt.size || 14) + '" font-weight="' + (opt.weight || 700) +
-      '" text-anchor="' + (opt.anchor || 'middle') + '">' + esc(str) + '</text>';
+      '" text-anchor="' + (opt.anchor || 'middle') + '">' + esc(str) + '<\/text>';
   }
   function dirName(cw) { return cw ? '時計回り' : '反時計回り'; }
   function valueBox(label, value, small) {
-    return '<div class="value"><dt>' + label + '</dt><dd>' + value + (small ? '<small>' + small + '</small>' : '') + '</dd></div>';
+    return '<div class="value"><dt>' + label + '<\/dt><dd>' + value + (small ? '<small>' + small + '<\/small>' : '') + '<\/dd><\/div>';
   }
   function turns(angle) { return Sim.fmt(angle / 360, 2); }
 
@@ -71,18 +72,18 @@
     var range = scene.mode === 'rack' ? [-Math.floor(Sim.RACK.maxAngle), Math.floor(Sim.RACK.maxAngle)] : [0, scene.mode === 'turn720' ? 720 : 360];
     host.innerHTML =
       '<div class="sim">' +
-      '<svg class="sim-svg" viewBox="' + scene.viewBox + '" role="img" aria-label="' + esc(scene.label) + '">' + markerDefs(uid) + scene.svg(uid) + '</svg>' +
+      '<svg class="sim-svg" viewBox="' + scene.viewBox + '" role="img" aria-label="' + esc(scene.label) + '">' + markerDefs(uid) + scene.svg(uid) + '<\/svg>' +
       '<div class="controls">' +
-      '<button type="button" class="btn primary" data-act="play"></button>' +
-      '<button type="button" class="btn" data-act="slow"></button>' +
-      (scene.mode === 'rack' ? '<button type="button" class="btn" data-act="dir"></button>' : '') +
-      '<button type="button" class="btn" data-act="reset">はじめの位置に戻す</button>' +
-      '</div>' +
-      '<label class="manual"><span data-k="manualLabel"></span>' +
-      '<input type="range" min="' + range[0] + '" max="' + range[1] + '" step="1" data-k="manual"></label>' +
-      '<p class="speed-note" data-k="speed"></p>' +
-      '<div class="sim-info" aria-live="polite" data-k="info"></div>' +
-      '</div>';
+      '<button type="button" class="btn primary" data-act="play"><\/button>' +
+      '<button type="button" class="btn" data-act="slow"><\/button>' +
+      (scene.mode === 'rack' ? '<button type="button" class="btn" data-act="dir"><\/button>' : '') +
+      '<button type="button" class="btn" data-act="reset">はじめの位置に戻す<\/button>' +
+      '<\/div>' +
+      '<label class="manual"><span data-k="manualLabel"><\/span>' +
+      '<input type="range" min="' + range[0] + '" max="' + range[1] + '" step="1" data-k="manual"><\/label>' +
+      '<p class="speed-note" data-k="speed"><\/p>' +
+      '<div class="sim-info" aria-live="polite" data-k="info"><\/div>' +
+      '<\/div>';
     var root = host.firstChild;
     var svg = root.querySelector('svg');
     var update = scene.bind(svg);
@@ -195,7 +196,7 @@
             '<path d="' + Sim.gearPath(x.z, m) + '" fill="' + x.soft + '" stroke="' + x.color + '" stroke-width="2"/>' +
             '<line x1="0" y1="0" x2="' + (x.r * 0.7).toFixed(1) + '" y2="0" stroke="' + x.color + '" stroke-width="4"/>' +
             '<circle cx="' + (x.r * 0.7).toFixed(1) + '" cy="0" r="6" fill="#fff" stroke="' + x.color + '" stroke-width="3"/>' +
-            '</g><circle r="7" fill="' + x.color + '"/></g>';
+            '<\/g><circle r="7" fill="' + x.color + '"/><\/g>';
           s += arcArrow(x.cx, cy, x.r + m + 12, -130, -50, x.cw, x.color, uid);
           s += text(x.cx, ly, x.name, x.color);
           s += text(x.cx, ly + 18, x.z + '歯', x.color, { weight: 400 });
@@ -213,9 +214,9 @@
       info: function (angle) {
         var a = Sim.gearAngles(g, angle);
         var out = '<dl class="values">' +
-          valueBox('<span class="tag-in">入力</span>の回転', turns(a.input) + ' 回転', dirName(true)) +
-          valueBox('<span class="tag-out">出力</span>の回転', turns(Math.abs(a.output)) + ' 回転', dirName(g.idler) + '（入力と' + (g.idler ? '同じ向き' : '逆向き') + '）') +
-          '</dl>';
+          valueBox('<span class="tag-in">入力<\/span>の回転', turns(a.input) + ' 回転', dirName(true)) +
+          valueBox('<span class="tag-out">出力<\/span>の回転', turns(Math.abs(a.output)) + ' 回転', dirName(g.idler) + '（入力と' + (g.idler ? '同じ向き' : '逆向き') + '）') +
+          '<\/dl>';
         return out;
       }
     };
@@ -275,9 +276,9 @@
           var p = Sim.crankSlider(r, rod, angle);
           var pos = p.slider.x - (rod - r); // 左端からの位置
           return '<dl class="values">' +
-            valueBox('<span class="tag-in">入力</span>：クランクの角度', Math.round(Sim.mod(angle, 360)) + '°', 'クランク半径：' + r + 'mm（' + (size === 'small' ? '小' : '大') + '）') +
-            valueBox('<span class="tag-out">出力</span>：スライダの位置', Sim.fmt(pos, 0) + ' mm', '左はしから。動く範囲は ' + (2 * r) + 'mm') +
-            '</dl>';
+            valueBox('<span class="tag-in">入力<\/span>：クランクの角度', Math.round(Sim.mod(angle, 360)) + '°', 'クランク半径：' + r + 'mm（' + (size === 'small' ? '小' : '大') + '）') +
+            valueBox('<span class="tag-out">出力<\/span>：スライダの位置', Sim.fmt(pos, 0) + ' mm', '左はしから。動く範囲は ' + (2 * r) + 'mm') +
+            '<\/dl>';
         }
       };
     }
@@ -333,9 +334,9 @@
         var p = Sim.crankRocker(a, d, angle);
         var tilt = p.leverAngle - (rg.min + rg.max) / 2;
         return '<dl class="values">' +
-          valueBox('<span class="tag-in">入力</span>：クランクの角度', Math.round(Sim.mod(angle, 360)) + '°', 'クランク半径：' + a + 'mm（' + (size === 'small' ? '小' : '大') + '）') +
-          valueBox('<span class="tag-out">出力</span>：レバーの傾き', (tilt >= 0 ? '右へ ' : '左へ ') + Math.abs(Math.round(tilt)) + '°', '中央から。揺動の範囲は約 ' + Math.round(rg.span) + '°') +
-          '</dl>';
+          valueBox('<span class="tag-in">入力<\/span>：クランクの角度', Math.round(Sim.mod(angle, 360)) + '°', 'クランク半径：' + a + 'mm（' + (size === 'small' ? '小' : '大') + '）') +
+          valueBox('<span class="tag-out">出力<\/span>：レバーの傾き', (tilt >= 0 ? '右へ ' : '左へ ') + Math.abs(Math.round(tilt)) + '°', '中央から。揺動の範囲は約 ' + Math.round(rg.span) + '°') +
+          '<\/dl>';
       }
     };
   }
@@ -358,9 +359,9 @@
         // 従動節の案内
         s += '<rect x="' + (cx - 16) + '" y="40" width="6" height="40" fill="#94a3b8"/><rect x="' + (cx + 10) + '" y="40" width="6" height="40" fill="#94a3b8"/>';
         s += '<g data-k="fol"><rect x="' + (cx - 8) + '" y="' + (cy - base - 110) + '" width="16" height="110" fill="' + C.outputSoft + '" stroke="' + C.output + '" stroke-width="3"/>' +
-          '<path d="M' + (cx - 8) + ' ' + (cy - base) + 'L' + cx + ' ' + (cy - base + 0.1) + 'L' + (cx + 8) + ' ' + (cy - base) + '" fill="none" stroke="' + C.output + '" stroke-width="3"/></g>';
+          '<path d="M' + (cx - 8) + ' ' + (cy - base) + 'L' + cx + ' ' + (cy - base + 0.1) + 'L' + (cx + 8) + ' ' + (cy - base) + '" fill="none" stroke="' + C.output + '" stroke-width="3"/><\/g>';
         s += '<g transform="translate(' + cx + ' ' + cy + ')"><g data-k="cam"><path d="' + Sim.camPath(type) + '" fill="' + C.inputSoft + '" stroke="' + C.input + '" stroke-width="3"/>' +
-          '<line x1="0" y1="0" x2="' + (base - 10) + '" y2="0" stroke="' + C.input + '" stroke-width="3"/></g><circle r="7" fill="' + C.input + '"/></g>';
+          '<line x1="0" y1="0" x2="' + (base - 10) + '" y2="0" stroke="' + C.input + '" stroke-width="3"/><\/g><circle r="7" fill="' + C.input + '"/><\/g>';
         s += arcArrow(cx, cy, base + L + 14, 150, 230, true, C.input, uid);
         s += text(cx, cy + base + L + 14, '入力：カム（' + label + '）', C.input);
         s += text(cx + 22, 30, '出力：従動節', C.output, { anchor: 'start' });
@@ -397,9 +398,9 @@
         var dl = Sim.camLift(type, angle + 2) - Sim.camLift(type, angle - 2);
         var now = Math.abs(dl) < 1e-6 ? '同じ位置にとどまっている' : dl > 0 ? '上がっている' : '下がっている';
         return '<dl class="values">' +
-          valueBox('<span class="tag-in">入力</span>：カムの角度', Math.round(Sim.mod(angle, 360)) + '°', 'カムの形：' + label) +
-          valueBox('<span class="tag-out">出力</span>：従動節の位置', Sim.fmt(lift, 0) + ' mm', 'いちばん下から。いまは「' + now + '」') +
-          '</dl>';
+          valueBox('<span class="tag-in">入力<\/span>：カムの角度', Math.round(Sim.mod(angle, 360)) + '°', 'カムの形：' + label) +
+          valueBox('<span class="tag-out">出力<\/span>：従動節の位置', Sim.fmt(lift, 0) + ' mm', 'いちばん下から。いまは「' + now + '」') +
+          '<\/dl>';
       }
     };
   }
@@ -421,7 +422,7 @@
         s += '<line x1="' + ox + '" y1="20" x2="' + ox + '" y2="' + oy + '" stroke="' + C.output + '" stroke-width="10"/>';
         s += '<ellipse cx="' + ix + '" cy="' + iy + '" rx="' + thin + '" ry="' + R + '" fill="' + C.inputSoft + '" stroke="' + C.input + '" stroke-width="3"/>';
         s += '<ellipse cx="' + ox + '" cy="' + oy + '" rx="' + R + '" ry="' + thin + '" fill="' + C.outputSoft + '" stroke="' + C.output + '" stroke-width="3"/>';
-        s += '<g data-k="ti"></g><g data-k="to"></g>';
+        s += '<g data-k="ti"><\/g><g data-k="to"><\/g>';
         s += '<path d="M90 ' + (iy - 22) + 'A10 22 0 0 1 90 ' + (iy + 22) + '" fill="none" stroke="' + C.input + '" stroke-width="3" marker-end="url(#ah-in-' + uid + ')"/>';
         s += '<path d="M' + (ox - 22) + ' 50A22 10 0 0 0 ' + (ox + 22) + ' 50" fill="none" stroke="' + C.output + '" stroke-width="3" marker-end="url(#ah-out-' + uid + ')"/>';
         s += text(110, iy + 50, '入力軸（横向き）', C.input);
@@ -446,8 +447,8 @@
         };
       },
       info: function (angle) {
-        return '<dl class="values">' + valueBox('<span class="tag-in">入力</span>の回転', turns(angle) + ' 回転', '横向きの軸') +
-          valueBox('<span class="tag-out">出力</span>の回転', turns(angle) + ' 回転', '縦向きの軸（歯数が同じなので同じ回転数）') + '</dl>';
+        return '<dl class="values">' + valueBox('<span class="tag-in">入力<\/span>の回転', turns(angle) + ' 回転', '横向きの軸') +
+          valueBox('<span class="tag-out">出力<\/span>の回転', turns(angle) + ' 回転', '縦向きの軸（歯数が同じなので同じ回転数）') + '<\/dl>';
       }
     };
   }
@@ -460,13 +461,13 @@
       id: 'worm', mode: 'turn720', viewBox: '0 0 ' + W + ' ' + H,
       label: 'ウォームギアの図。ウォームが入力、ウォームホイールが出力',
       svg: function (uid) {
-        var s = '<clipPath id="wc-' + uid + '"><rect x="' + x0 + '" y="' + (ay - hr) + '" width="' + (x1 - x0) + '" height="' + (2 * hr) + '"/></clipPath>';
+        var s = '<clipPath id="wc-' + uid + '"><rect x="' + x0 + '" y="' + (ay - hr) + '" width="' + (x1 - x0) + '" height="' + (2 * hr) + '"/><\/clipPath>';
         s += '<g transform="translate(' + wx + ' ' + wy + ')"><g data-k="wheel"><path d="' + Sim.gearPath(Z, m) + '" fill="' + C.outputSoft + '" stroke="' + C.output + '" stroke-width="2"/>' +
-          '<line x1="0" y1="0" x2="' + (wr * 0.7) + '" y2="0" stroke="' + C.output + '" stroke-width="4"/><circle cx="' + (wr * 0.7) + '" r="6" fill="#fff" stroke="' + C.output + '" stroke-width="3"/></g>' +
-          '<circle r="7" fill="' + C.output + '"/></g>';
+          '<line x1="0" y1="0" x2="' + (wr * 0.7) + '" y2="0" stroke="' + C.output + '" stroke-width="4"/><circle cx="' + (wr * 0.7) + '" r="6" fill="#fff" stroke="' + C.output + '" stroke-width="3"/><\/g>' +
+          '<circle r="7" fill="' + C.output + '"/><\/g>';
         s += '<line x1="120" y1="' + ay + '" x2="' + (x1 + 30) + '" y2="' + ay + '" stroke="' + C.input + '" stroke-width="8"/>';
         s += '<rect x="' + x0 + '" y="' + (ay - hr) + '" width="' + (x1 - x0) + '" height="' + (2 * hr) + '" rx="6" fill="' + C.inputSoft + '" stroke="' + C.input + '" stroke-width="3"/>';
-        s += '<g clip-path="url(#wc-' + uid + ')"><g data-k="thread"></g></g>';
+        s += '<g clip-path="url(#wc-' + uid + ')"><g data-k="thread"><\/g><\/g>';
         s += '<ellipse cx="150" cy="' + ay + '" rx="8" ry="24" fill="#fff" stroke="' + C.input + '" stroke-width="3"/><circle data-k="hd" r="5" fill="' + C.input + '"/>';
         s += arcArrow(wx, wy, wr + m + 12, 200, 250, false, C.output, uid);
         s += text(160, ay + 50, '入力：ウォーム（1条）', C.input);
@@ -490,8 +491,8 @@
         };
       },
       info: function (angle) {
-        return '<dl class="values">' + valueBox('<span class="tag-in">入力</span>：ウォーム', turns(angle) + ' 回転', '1回転でホイールが1歯分進む') +
-          valueBox('<span class="tag-out">出力</span>：ウォームホイール', Sim.fmt(angle / 360, 1) + ' 歯分', '= ' + Sim.fmt(angle / 360 / Z, 3) + ' 回転（' + Z + '歯で1回転）') + '</dl>';
+        return '<dl class="values">' + valueBox('<span class="tag-in">入力<\/span>：ウォーム', turns(angle) + ' 回転', '1回転でホイールが1歯分進む') +
+          valueBox('<span class="tag-out">出力<\/span>：ウォームホイール', Sim.fmt(angle / 360, 1) + ' 歯分', '= ' + Sim.fmt(angle / 360 / Z, 3) + ' 回転（' + Z + '歯で1回転）') + '<\/dl>';
       }
     };
   }
@@ -503,7 +504,7 @@
       var p = pt(0, 0, r * 0.8, k * 360 / spokes);
       s += '<line x1="0" y1="0" x2="' + p[0].toFixed(1) + '" y2="' + p[1].toFixed(1) + '" stroke="' + color + '" stroke-width="' + (k === 0 ? 5 : 2) + '"/>';
     }
-    return s + '<circle cx="' + (r * 0.8) + '" r="5" fill="#fff" stroke="' + color + '" stroke-width="3"/></g><circle r="6" fill="' + color + '"/>';
+    return s + '<circle cx="' + (r * 0.8) + '" r="5" fill="#fff" stroke="' + color + '" stroke-width="3"/><\/g><circle r="6" fill="' + color + '"/>';
   }
 
   // 摩擦車
@@ -513,8 +514,8 @@
       id: 'friction', mode: 'turn720', viewBox: '0 0 ' + W + ' ' + H,
       label: '摩擦車の図。接触した2つの車が逆向きに回る',
       svg: function (uid) {
-        var s = '<g transform="translate(' + x1 + ' ' + cy + ')">' + wheelSvg('w1', r1, C.input, C.inputSoft, 4, 8) + '</g>' +
-          '<g transform="translate(' + x2 + ' ' + cy + ')">' + wheelSvg('w2', r2, C.output, C.outputSoft, 6, 8) + '</g>';
+        var s = '<g transform="translate(' + x1 + ' ' + cy + ')">' + wheelSvg('w1', r1, C.input, C.inputSoft, 4, 8) + '<\/g>' +
+          '<g transform="translate(' + x2 + ' ' + cy + ')">' + wheelSvg('w2', r2, C.output, C.outputSoft, 6, 8) + '<\/g>';
         s += arcArrow(x1, cy, r1 + 16, -130, -50, true, C.input, uid) + arcArrow(x2, cy, r2 + 16, -130, -50, false, C.output, uid);
         s += '<circle cx="' + (x1 + r1) + '" cy="' + cy + '" r="10" fill="none" stroke="#0f172a" stroke-width="2" stroke-dasharray="3 3"/>';
         s += text(x1 + r1, cy - r2 - 36, '接触部', '#0f172a', { size: 13 });
@@ -530,8 +531,8 @@
         };
       },
       info: function (angle) {
-        return '<dl class="values">' + valueBox('<span class="tag-in">入力</span>の回転', turns(angle) + ' 回転', dirName(true)) +
-          valueBox('<span class="tag-out">出力</span>の回転', turns(angle * r1 / r2) + ' 回転', dirName(false) + '（すべらないモデル）') + '</dl>';
+        return '<dl class="values">' + valueBox('<span class="tag-in">入力<\/span>の回転', turns(angle) + ' 回転', dirName(true)) +
+          valueBox('<span class="tag-out">出力<\/span>の回転', turns(angle * r1 / r2) + ' 回転', dirName(false) + '（すべらないモデル）') + '<\/dl>';
       }
     };
   }
@@ -565,13 +566,13 @@
     var wheel = function (key, r, z, color, soft) {
       if (!z) return wheelSvg(key, r, color, soft, 5);
       return '<g data-k="' + key + '"><path d="' + Sim.gearPath(z, cfg.m) + '" fill="' + soft + '" stroke="' + color + '" stroke-width="2"/>' +
-        '<line x1="0" y1="0" x2="' + (r * 0.6) + '" y2="0" stroke="' + color + '" stroke-width="4"/><circle cx="' + (r * 0.6) + '" r="5" fill="#fff" stroke="' + color + '" stroke-width="3"/></g><circle r="6" fill="' + color + '"/>';
+        '<line x1="0" y1="0" x2="' + (r * 0.6) + '" y2="0" stroke="' + color + '" stroke-width="4"/><circle cx="' + (r * 0.6) + '" r="5" fill="#fff" stroke="' + color + '" stroke-width="3"/><\/g><circle r="6" fill="' + color + '"/>';
     };
     return {
       id: kind, mode: 'turn720', viewBox: '0 0 ' + W + ' ' + H, label: names[3],
       svg: function (uid) {
-        var s = '<g transform="translate(' + x1.toFixed(1) + ' ' + cy + ')">' + wheel('w1', r1, cfg.z1, C.input, C.inputSoft) + '</g>' +
-          '<g transform="translate(' + x2.toFixed(1) + ' ' + cy + ')">' + wheel('w2', r2, cfg.z2, C.output, C.outputSoft) + '</g>';
+        var s = '<g transform="translate(' + x1.toFixed(1) + ' ' + cy + ')">' + wheel('w1', r1, cfg.z1, C.input, C.inputSoft) + '<\/g>' +
+          '<g transform="translate(' + x2.toFixed(1) + ' ' + cy + ')">' + wheel('w2', r2, cfg.z2, C.output, C.outputSoft) + '<\/g>';
         if (kind === 'belt') {
           s += '<path d="' + belt.d + '" fill="none" stroke="#334155" stroke-width="7"/>';
           s += '<path data-k="mv" d="' + belt.d + '" fill="none" stroke="#fde047" stroke-width="3" stroke-dasharray="6 ' + (p - 6) + '"/>';
@@ -601,8 +602,8 @@
       },
       info: function (angle) {
         var out = angle * r1 / r2;
-        return '<dl class="values">' + valueBox('<span class="tag-in">入力</span>の回転', turns(angle) + ' 回転', dirName(true)) +
-          valueBox('<span class="tag-out">出力</span>の回転', turns(out) + ' 回転', dirName(true) + '（入力と同じ向き）') + '</dl>';
+        return '<dl class="values">' + valueBox('<span class="tag-in">入力<\/span>の回転', turns(angle) + ' 回転', dirName(true)) +
+          valueBox('<span class="tag-out">出力<\/span>の回転', turns(out) + ' 回転', dirName(true) + '（入力と同じ向き）') + '<\/dl>';
       }
     };
   }
@@ -632,10 +633,10 @@
         });
         s += '<line x1="' + (cx - lim) + '" y1="' + (top + 44) + '" x2="' + (cx + lim) + '" y2="' + (top + 44) + '" stroke="#94a3b8" stroke-width="3"/>';
         s += '<g data-k="rack"><path d="' + rackD() + '" fill="' + C.outputSoft + '" stroke="' + C.output + '" stroke-width="2"/>' +
-          '<circle cx="0" cy="' + (top + 16) + '" r="5" fill="#fff" stroke="' + C.output + '" stroke-width="3"/></g>';
+          '<circle cx="0" cy="' + (top + 16) + '" r="5" fill="#fff" stroke="' + C.output + '" stroke-width="3"/><\/g>';
         s += '<g transform="translate(' + cx + ' ' + cy + ')"><g data-k="pin"><path d="' + Sim.gearPath(z, m) + '" fill="' + C.inputSoft + '" stroke="' + C.input + '" stroke-width="2"/>' +
-          '<line x1="0" y1="0" x2="' + (rp * 0.6) + '" y2="0" stroke="' + C.input + '" stroke-width="4"/><circle cx="' + (rp * 0.6) + '" r="5" fill="#fff" stroke="' + C.input + '" stroke-width="3"/></g><circle r="6" fill="' + C.input + '"/></g>';
-        s += '<g data-k="arr"></g>';
+          '<line x1="0" y1="0" x2="' + (rp * 0.6) + '" y2="0" stroke="' + C.input + '" stroke-width="4"/><circle cx="' + (rp * 0.6) + '" r="5" fill="#fff" stroke="' + C.input + '" stroke-width="3"/><\/g><circle r="6" fill="' + C.input + '"/><\/g>';
+        s += '<g data-k="arr"><\/g>';
         s += text(cx, cy - rp - 34, '入力：ピニオン', C.input);
         s += text(cx, top + 66, '出力：ラック（端で止まる）', C.output);
         return s;
@@ -660,9 +661,9 @@
       info: function (angle, st) {
         var rs = Sim.rackState(angle);
         var pos = -rs.x;
-        var html = '<dl class="values">' + valueBox('<span class="tag-in">入力</span>：ピニオン', Math.round(rs.angle) + '°', '回した角度（時計回りが＋）') +
-          valueBox('<span class="tag-out">出力</span>：ラックの位置', (pos < -0.5 ? '左へ ' : pos > 0.5 ? '右へ ' : '') + Sim.fmt(Math.abs(pos), 0) + ' mm', '中央から。端までは ' + R.travel + 'mm') + '</dl>';
-        if (rs.atEnd) html += '<p class="alert">ラックが端に着いたので止まりました。「回す向き」を変えるか、手で逆向きに回すと戻ります。</p>';
+        var html = '<dl class="values">' + valueBox('<span class="tag-in">入力<\/span>：ピニオン', Math.round(rs.angle) + '°', '回した角度（時計回りが＋）') +
+          valueBox('<span class="tag-out">出力<\/span>：ラックの位置', (pos < -0.5 ? '左へ ' : pos > 0.5 ? '右へ ' : '') + Sim.fmt(Math.abs(pos), 0) + ' mm', '中央から。端までは ' + R.travel + 'mm') + '<\/dl>';
+        if (rs.atEnd) html += '<p class="alert">ラックが端に着いたので止まりました。「回す向き」を変えるか、手で逆向きに回すと戻ります。<\/p>';
         return html;
       }
     };
@@ -702,12 +703,12 @@
   // 予想の欄
   function predictHtml(key) {
     var p = PREDICT[key], sel = state.predict[key];
-    var s = '<p>' + esc(p.q) + '</p><div class="choices">';
+    var s = '<p>' + esc(p.q) + '<\/p><div class="choices">';
     p.opts.forEach(function (o, i) {
-      s += '<button type="button" class="btn choice" data-pred="' + i + '" aria-pressed="' + (sel === i) + '">' + esc(o) + '</button>';
+      s += '<button type="button" class="btn choice" data-pred="' + i + '" aria-pressed="' + (sel === i) + '">' + esc(o) + '<\/button>';
     });
-    s += '</div>';
-    if (sel !== undefined) s += '<p class="feedback info">予想：「' + esc(p.opts[sel]) + '」。2 で動かして確かめよう。（予想は記録されません）</p>';
+    s += '<\/div>';
+    if (sel !== undefined) s += '<p class="feedback info">予想：「' + esc(p.opts[sel]) + '」。2 で動かして確かめよう。（予想は記録されません）<\/p>';
     return s;
   }
   function bindPredict(el, key) {
@@ -718,15 +719,15 @@
   // 確認問題の欄
   function quizHtml(key) {
     var q = QUIZ[key], st = state.quiz[key] || {};
-    var s = '<p>' + esc(q.q) + '</p><div class="choices">';
+    var s = '<p>' + esc(q.q) + '<\/p><div class="choices">';
     q.opts.forEach(function (o, i) {
-      s += '<button type="button" class="btn choice" data-quiz="' + i + '" aria-pressed="' + (st.sel === i) + '">' + esc(o) + '</button>';
+      s += '<button type="button" class="btn choice" data-quiz="' + i + '" aria-pressed="' + (st.sel === i) + '">' + esc(o) + '<\/button>';
     });
-    s += '</div><button type="button" class="btn primary" data-check>答え合わせ</button>';
+    s += '<\/div><button type="button" class="btn primary" data-check>答え合わせ<\/button>';
     if (st.checked) {
-      if (st.sel === undefined) s += '<p class="feedback ng">選んでから「答え合わせ」を押してね。</p>';
-      else if (st.sel === q.ans) s += '<p class="feedback ok">正解！ ' + esc(q.exp) + '</p>';
-      else s += '<p class="feedback ng">もう一度考えてみよう。上で設定を変えて動かし、確かめてから選び直せます。</p>';
+      if (st.sel === undefined) s += '<p class="feedback ng">選んでから「答え合わせ」を押してね。<\/p>';
+      else if (st.sel === q.ans) s += '<p class="feedback ok">正解！ ' + esc(q.exp) + '<\/p>';
+      else s += '<p class="feedback ng">もう一度考えてみよう。上で設定を変えて動かし、確かめてから選び直せます。<\/p>';
     }
     return s;
   }
@@ -740,15 +741,15 @@
 
   // 「予想 → 操作 → 確認」の枠
   function stepHtml(no, title, body) {
-    return '<section class="step"><div class="step-head"><span class="step-no">' + no + '</span><h3>' + title + '</h3></div>' + body + '</section>';
+    return '<section class="step"><div class="step-head"><span class="step-no">' + no + '<\/span><h3>' + title + '<\/h3><\/div>' + body + '<\/section>';
   }
   // 切り替えボタンの組
   function segHtml(name, label, options, current) {
-    var s = '<div class="setting"><span class="label">' + label + '</span><span class="seg">';
+    var s = '<div class="setting"><span class="label">' + label + '<\/span><span class="seg">';
     options.forEach(function (o) {
-      s += '<button type="button" class="btn" data-set="' + name + '" data-val="' + esc(String(o[0])) + '" aria-pressed="' + (o[0] === current) + '">' + esc(o[1]) + '</button>';
+      s += '<button type="button" class="btn" data-set="' + name + '" data-val="' + esc(String(o[0])) + '" aria-pressed="' + (o[0] === current) + '">' + esc(o[1]) + '<\/button>';
     });
-    return s + '</span></div>';
+    return s + '<\/span><\/div>';
   }
   function bindSeg(root, handler) {
     root.querySelectorAll('[data-set]').forEach(function (b) {
@@ -756,8 +757,8 @@
     });
   }
   function pagerHtml(prev, next) {
-    var b = function (t) { return t ? '<button type="button" class="btn" data-go="' + t[0] + '">' + esc(t[1]) + '</button>' : '<span></span>'; };
-    return '<nav class="pager">' + b(prev) + b(next) + '</nav>';
+    var b = function (t) { return t ? '<button type="button" class="btn" data-go="' + t[0] + '">' + esc(t[1]) + '<\/button>' : '<span><\/span>'; };
+    return '<nav class="pager">' + b(prev) + b(next) + '<\/nav>';
   }
 
   // ---------- 各画面 ----------
@@ -765,33 +766,33 @@
 
   function renderHome() {
     app.innerHTML =
-      '<h1>動力伝達・運動変換シミュレーター</h1>' +
-      '<p class="lead">モーターの回転が、しくみを通ってどんな向き・速さ・動きになるかを、動かして確かめよう。どこからでも始められます。</p>' +
-      '<section class="course"><h2>回転を伝える</h2><div class="course-grid">' +
+      '<h1>動力伝達・運動変換シミュレーター<\/h1>' +
+      '<p class="lead">モーターの回転が、しくみを通ってどんな向き・速さ・動きになるかを、動かして確かめよう。どこからでも始められます。<\/p>' +
+      '<section class="course"><h2>回転を伝える<\/h2><div class="course-grid">' +
       card('gear1', '① 回転の伝わり方', '歯車2枚と3枚で、回る向きを比べる') +
       card('gear2', '② 平歯車の速さとトルク', '歯数を変えて、回転数とトルクを比べる') +
       card('calc', '③ 速度伝達比の計算', '②の設定で計算して確かめる') +
-      '</div></section>' +
-      '<section class="course"><h2>回転を別の運動に変える</h2><div class="course-grid">' +
+      '<\/div><\/section>' +
+      '<section class="course"><h2>回転を別の運動に変える<\/h2><div class="course-grid">' +
       card('link', '④ リンクの実験', 'クランク・スライダと揺動レバー') +
       card('cam', '⑤ カムの実験', '形によって変わる従動節の動き') +
-      '</div></section>' +
-      '<section class="course"><h2>ほかの機構・まとめ</h2><div class="course-grid">' +
+      '<\/div><\/section>' +
+      '<section class="course"><h2>ほかの機構・まとめ<\/h2><div class="course-grid">' +
       card('list', '⑥ 教科書の機構を見る', '傘歯車・ベルト・チェーン・ラックなど7種類') +
       card('summary', '⑦ まとめ課題', '機構を選んで試し、理由を書く') +
-      '</div></section>';
+      '<\/div><\/section>';
   }
   function card(go, title, sub) {
-    return '<button type="button" class="card-btn" data-go="' + go + '"><strong>' + esc(title) + '</strong><span>' + esc(sub) + '</span></button>';
+    return '<button type="button" class="card-btn" data-go="' + go + '"><strong>' + esc(title) + '<\/strong><span>' + esc(sub) + '<\/span><\/button>';
   }
 
   // ① 回転の伝わり方
   function renderGear1() {
-    app.innerHTML = '<h2>① 回転の伝わり方</h2>' +
-      stepHtml(1, '予想', '<div data-k="pred"></div>') +
-      stepHtml(2, '操作', '<div class="settings" data-k="set"></div><div data-k="sim"></div>' +
-        '<p class="note">歯車以外の伝え方も見てみよう：<button type="button" class="btn" data-go="list">⑥ 教科書の機構を見る</button></p>') +
-      stepHtml(3, '確認', '<div data-k="quiz"></div>') +
+    app.innerHTML = '<h2>① 回転の伝わり方<\/h2>' +
+      stepHtml(1, '予想', '<div data-k="pred"><\/div>') +
+      stepHtml(2, '操作', '<div class="settings" data-k="set"><\/div><div data-k="sim"><\/div>' +
+        '<p class="note">歯車以外の伝え方も見てみよう：<button type="button" class="btn" data-go="list">⑥ 教科書の機構を見る<\/button><\/p>') +
+      stepHtml(3, '確認', '<div data-k="quiz"><\/div>') +
       pagerHtml(['home', '← ホーム'], ['gear2', '次：② 速さとトルク →']);
     var q = function (k) { return app.querySelector('[data-k="' + k + '"]'); };
     q('pred').innerHTML = predictHtml('gear1'); bindPredict(q('pred'), 'gear1');
@@ -806,10 +807,10 @@
 
   // ② 平歯車の速さとトルク
   function renderGear2() {
-    app.innerHTML = '<h2>② 平歯車の速さとトルク</h2>' +
-      stepHtml(1, '予想', '<div data-k="pred"></div>') +
-      stepHtml(2, '操作', '<div class="settings" data-k="set"></div><div data-k="calcv"></div><div data-k="sim"></div>') +
-      stepHtml(3, '確認', '<div data-k="quiz"></div>') +
+    app.innerHTML = '<h2>② 平歯車の速さとトルク<\/h2>' +
+      stepHtml(1, '予想', '<div data-k="pred"><\/div>') +
+      stepHtml(2, '操作', '<div class="settings" data-k="set"><\/div><div data-k="calcv"><\/div><div data-k="sim"><\/div>') +
+      stepHtml(3, '確認', '<div data-k="quiz"><\/div>') +
       pagerHtml(['gear1', '← 前：① 回転の伝わり方'], ['calc', '次：③ 計算 →']);
     var q = function (k) { return app.querySelector('[data-k="' + k + '"]'); };
     q('pred').innerHTML = predictHtml('gear2'); bindPredict(q('pred'), 'gear2');
@@ -823,13 +824,13 @@
         draw();
       });
       var r = Sim.gearTrain(g);
-      q('calcv').innerHTML = '<p class="formula">速度伝達比 ＝ 出力回転数 ÷ 入力回転数 ＝ 入力歯数 ÷ 出力歯数</p>' +
+      q('calcv').innerHTML = '<p class="formula">速度伝達比 ＝ 出力回転数 ÷ 入力回転数 ＝ 入力歯数 ÷ 出力歯数<\/p>' +
         '<dl class="values">' +
-        valueBox('<span class="tag-in">入力</span>（計算上）', Sim.INPUT_RPM + ' 回転/分', 'トルク ' + Sim.INPUT_TORQUE + ' N·m') +
+        valueBox('<span class="tag-in">入力<\/span>（計算上）', Sim.INPUT_RPM + ' 回転/分', 'トルク ' + Sim.INPUT_TORQUE + ' N·m') +
         valueBox('速度伝達比', Sim.fmt(r.ratio), g.inTeeth + ' ÷ ' + g.outTeeth) +
-        valueBox('<span class="tag-out">出力</span>回転数（計算上）', Sim.fmt(r.outRpm) + ' 回転/分', '向き：' + (r.outSameDir ? '入力と同じ' : '入力と逆')) +
-        valueBox('<span class="tag-out">出力</span>トルク', Sim.fmt(r.outTorque) + ' N·m', '損失を無視した理想値') +
-        '</dl>';
+        valueBox('<span class="tag-out">出力<\/span>回転数（計算上）', Sim.fmt(r.outRpm) + ' 回転/分', '向き：' + (r.outSameDir ? '入力と同じ' : '入力と逆')) +
+        valueBox('<span class="tag-out">出力<\/span>トルク', Sim.fmt(r.outTorque) + ' N·m', '損失を無視した理想値') +
+        '<\/dl>';
       mountSim(q('sim'), gearScene(g, 'gear'));
     };
     draw();
@@ -839,37 +840,37 @@
   function renderCalc() {
     var g = state.gear, key = g.inTeeth + '-' + g.outTeeth + '-' + g.idler;
     if (state.calc.key !== key) { state.calc = { ratio: '', rpm: '', result: null, key: key }; }
-    app.innerHTML = '<h2>③ 速度伝達比の計算</h2>' +
-      stepHtml(1, '予想', '<div data-k="pred"></div>') +
+    app.innerHTML = '<h2>③ 速度伝達比の計算<\/h2>' +
+      stepHtml(1, '予想', '<div data-k="pred"><\/div>') +
       stepHtml(2, '操作（設定の確認）',
-        '<p>②の設定を使って計算します。</p>' +
+        '<p>②の設定を使って計算します。<\/p>' +
         '<dl class="values">' +
-        valueBox('<span class="tag-in">入力</span>の歯数', g.inTeeth + ' 歯') +
-        valueBox('<span class="tag-out">出力</span>の歯数', g.outTeeth + ' 歯') +
+        valueBox('<span class="tag-in">入力<\/span>の歯数', g.inTeeth + ' 歯') +
+        valueBox('<span class="tag-out">出力<\/span>の歯数', g.outTeeth + ' 歯') +
         valueBox('中間歯車', g.idler ? 'あり（20歯）' : 'なし') +
-        valueBox('<span class="tag-in">入力</span>回転数', Sim.INPUT_RPM + ' 回転/分') +
-        '</dl>' +
-        '<p class="formula">速度伝達比 ＝ 出力回転数 ÷ 入力回転数 ＝ 入力歯数 ÷ 出力歯数<br>出力回転数 ＝ 入力回転数 × 速度伝達比</p>' +
-        '<button type="button" class="btn" data-go="gear2">← ②に戻って設定を変える</button>') +
-      stepHtml(3, '確認', '<div data-k="quiz"></div>') +
+        valueBox('<span class="tag-in">入力<\/span>回転数', Sim.INPUT_RPM + ' 回転/分') +
+        '<\/dl>' +
+        '<p class="formula">速度伝達比 ＝ 出力回転数 ÷ 入力回転数 ＝ 入力歯数 ÷ 出力歯数<br>出力回転数 ＝ 入力回転数 × 速度伝達比<\/p>' +
+        '<button type="button" class="btn" data-go="gear2">← ②に戻って設定を変える<\/button>') +
+      stepHtml(3, '確認', '<div data-k="quiz"><\/div>') +
       pagerHtml(['gear2', '← 前：② 速さとトルク'], ['home', 'ホームへ']);
     var q = function (k) { return app.querySelector('[data-k="' + k + '"]'); };
     q('pred').innerHTML = predictHtml('calc'); bindPredict(q('pred'), 'calc');
     var drawQuiz = function () {
       var c = state.calc, res = c.result;
-      var mark = function (ok) { return res ? '<span class="mark ' + (ok ? 'ok' : 'ng') + '">' + (ok ? '○ 正しい' : '× ちがう') + '</span>' : ''; };
-      var s = '<p>上の設定のとき、速度伝達比と出力回転数を計算して入力しよう。</p>' +
-        '<div class="answer-row"><label for="ansRatio">速度伝達比</label><input id="ansRatio" type="text" inputmode="decimal" autocomplete="off" value="' + esc(c.ratio) + '">' + mark(res && res.ratioOk) + '</div>' +
-        '<div class="answer-row"><label for="ansRpm">出力回転数</label><input id="ansRpm" type="text" inputmode="decimal" autocomplete="off" value="' + esc(c.rpm) + '"><span>回転/分</span>' + mark(res && res.rpmOk) + '</div>' +
-        '<button type="button" class="btn primary" data-check>確かめる</button>';
+      var mark = function (ok) { return res ? '<span class="mark ' + (ok ? 'ok' : 'ng') + '">' + (ok ? '○ 正しい' : '× ちがう') + '<\/span>' : ''; };
+      var s = '<p>上の設定のとき、速度伝達比と出力回転数を計算して入力しよう。<\/p>' +
+        '<div class="answer-row"><label for="ansRatio">速度伝達比<\/label><input id="ansRatio" type="text" inputmode="decimal" autocomplete="off" value="' + esc(c.ratio) + '">' + mark(res && res.ratioOk) + '<\/div>' +
+        '<div class="answer-row"><label for="ansRpm">出力回転数<\/label><input id="ansRpm" type="text" inputmode="decimal" autocomplete="off" value="' + esc(c.rpm) + '"><span>回転/分<\/span>' + mark(res && res.rpmOk) + '<\/div>' +
+        '<button type="button" class="btn primary" data-check>確かめる<\/button>';
       if (res && res.allOk) {
         var r = Sim.gearTrain(g);
-        s += '<div class="feedback ok"><strong>正解！</strong><br>' +
+        s += '<div class="feedback ok"><strong>正解！<\/strong><br>' +
           '速度伝達比 ＝ ' + g.inTeeth + ' ÷ ' + g.outTeeth + ' ＝ ' + Sim.fmt(r.ratio) + '<br>' +
           '出力回転数 ＝ ' + Sim.INPUT_RPM + ' 回転/分 × ' + Sim.fmt(r.ratio) + ' ＝ ' + Sim.fmt(r.outRpm) + ' 回転/分<br>' +
-          '理想出力トルク ＝ ' + Sim.INPUT_TORQUE + ' N·m ÷ ' + Sim.fmt(r.ratio) + ' ＝ ' + Sim.fmt(r.outTorque) + ' N·m（損失を無視した理想値）</div>';
+          '理想出力トルク ＝ ' + Sim.INPUT_TORQUE + ' N·m ÷ ' + Sim.fmt(r.ratio) + ' ＝ ' + Sim.fmt(r.outTorque) + ' N·m（損失を無視した理想値）<\/div>';
       } else if (res) {
-        s += '<div class="feedback ng"><strong>ヒント</strong><br>' + res.hints.map(esc).join('<br>') + '<br>直して、もう一度「確かめる」を押そう。</div>';
+        s += '<div class="feedback ng"><strong>ヒント<\/strong><br>' + res.hints.map(esc).join('<br>') + '<br>直して、もう一度「確かめる」を押そう。<\/div>';
       }
       q('quiz').innerHTML = s;
       var iR = q('quiz').querySelector('#ansRatio'), iP = q('quiz').querySelector('#ansRpm');
@@ -884,11 +885,11 @@
 
   // ④ リンクの実験
   function renderLink() {
-    app.innerHTML = '<h2>④ リンクの実験</h2>' +
-      stepHtml(1, '予想', '<div data-k="pred"></div>') +
-      stepHtml(2, '操作', '<div class="settings" data-k="set"></div><div data-k="sim"></div>' +
-        '<p class="note">回転を直線の動きに変える、別のしくみと比べよう：<button type="button" class="btn" data-go="mech" data-id="rack" data-from="link">ラックとピニオンを見る</button></p>') +
-      stepHtml(3, '確認', '<div data-k="quiz"></div>') +
+    app.innerHTML = '<h2>④ リンクの実験<\/h2>' +
+      stepHtml(1, '予想', '<div data-k="pred"><\/div>') +
+      stepHtml(2, '操作', '<div class="settings" data-k="set"><\/div><div data-k="sim"><\/div>' +
+        '<p class="note">回転を直線の動きに変える、別のしくみと比べよう：<button type="button" class="btn" data-go="mech" data-id="rack" data-from="link">ラックとピニオンを見る<\/button><\/p>') +
+      stepHtml(3, '確認', '<div data-k="quiz"><\/div>') +
       pagerHtml(['home', '← ホーム'], ['cam', '次：⑤ カムの実験 →']);
     var q = function (k) { return app.querySelector('[data-k="' + k + '"]'); };
     q('pred').innerHTML = predictHtml('link'); bindPredict(q('pred'), 'link');
@@ -905,10 +906,10 @@
 
   // ⑤ カムの実験
   function renderCam() {
-    app.innerHTML = '<h2>⑤ カムの実験</h2>' +
-      stepHtml(1, '予想', '<div data-k="pred"></div>') +
-      stepHtml(2, '操作', '<div class="settings" data-k="set"></div><div data-k="sim"></div>') +
-      stepHtml(3, '確認', '<div data-k="quiz"></div>') +
+    app.innerHTML = '<h2>⑤ カムの実験<\/h2>' +
+      stepHtml(1, '予想', '<div data-k="pred"><\/div>') +
+      stepHtml(2, '操作', '<div class="settings" data-k="set"><\/div><div data-k="sim"><\/div>') +
+      stepHtml(3, '確認', '<div data-k="quiz"><\/div>') +
       pagerHtml(['link', '← 前：④ リンクの実験'], ['home', 'ホームへ']);
     var q = function (k) { return app.querySelector('[data-k="' + k + '"]'); };
     q('pred').innerHTML = predictHtml('cam'); bindPredict(q('pred'), 'cam');
@@ -923,11 +924,11 @@
 
   // ⑥ 教科書の機構を見る（一覧）
   function renderList() {
-    var s = '<h2>⑥ 教科書の機構を見る</h2><p class="lead">見たい機構を選ぼう。どれも同じ操作（再生・一時停止・低速・手で回す）で動かせます。</p><div class="course-grid">';
+    var s = '<h2>⑥ 教科書の機構を見る<\/h2><p class="lead">見たい機構を選ぼう。どれも同じ操作（再生・一時停止・低速・手で回す）で動かせます。<\/p><div class="course-grid">';
     MECHS.forEach(function (mc) {
-      s += '<button type="button" class="card-btn" data-go="mech" data-id="' + mc.id + '" data-from="list"><strong>' + esc(mc.name) + '</strong><span>' + esc(mc.desc) + '</span></button>';
+      s += '<button type="button" class="card-btn" data-go="mech" data-id="' + mc.id + '" data-from="list"><strong>' + esc(mc.name) + '<\/strong><span>' + esc(mc.desc) + '<\/span><\/button>';
     });
-    s += '</div>' + pagerHtml(['home', '← ホーム'], null);
+    s += '<\/div>' + pagerHtml(['home', '← ホーム'], null);
     app.innerHTML = s;
   }
 
@@ -935,9 +936,9 @@
   function renderMech() {
     var mc = mechById(state.params.id) || MECHS[0];
     var from = state.params.from === 'link' ? ['link', '← ④ リンクの実験に戻る'] : ['list', '← 機構一覧に戻る'];
-    app.innerHTML = '<h2>' + esc(mc.name) + '</h2>' +
-      '<div class="question-box"><strong>観察の問い</strong><br>' + esc(mc.q) + '</div>' +
-      '<div data-k="sim"></div>' + pagerHtml(from, ['home', 'ホームへ']);
+    app.innerHTML = '<h2>' + esc(mc.name) + '<\/h2>' +
+      '<div class="question-box"><strong>観察の問い<\/strong><br>' + esc(mc.q) + '<\/div>' +
+      '<div data-k="sim"><\/div>' + pagerHtml(from, ['home', 'ホームへ']);
     mountSim(app.querySelector('[data-k="sim"]'), mc.scene());
   }
 
@@ -972,27 +973,27 @@
   function renderSummary() {
     state.fromSummary = false;
     var sm = state.summary;
-    var s = '<h2>⑦ まとめ課題</h2>' +
-      '<p class="warn">ここに書いた内容は、このページを開いている間だけ残ります。<strong>ページを再読み込みしたり、タブを閉じたりすると消えます。</strong>書き終えたら下の「まとめてコピー」を使い、先生が指定した提出先に貼り付けてください。</p>' +
-      '<div class="field"><span class="label">1. 課題を選ぶ</span><div class="choices">';
+    var s = '<h2>⑦ まとめ課題<\/h2>' +
+      '<p class="warn">ここに書いた内容は、このページを開いている間だけ残ります。<strong>ページを再読み込みしたり、タブを閉じたりすると消えます。<\/strong>書き終えたら下の「まとめてコピー」を使い、先生が指定した提出先に貼り付けてください。<\/p>' +
+      '<div class="field"><span class="label">1. 課題を選ぶ<\/span><div class="choices">';
     TASKS.forEach(function (t, i) {
-      s += '<button type="button" class="btn choice" data-task="' + i + '" aria-pressed="' + (sm.task === String(i)) + '">' + esc(t) + '</button>';
+      s += '<button type="button" class="btn choice" data-task="' + i + '" aria-pressed="' + (sm.task === String(i)) + '">' + esc(t) + '<\/button>';
     });
-    s += '</div></div>' +
-      '<div class="field"><label for="mechSel">2. 機構を選んで試す</label>' +
-      '<select id="mechSel"><option value="">（機構を選ぶ）</option>';
-    SUMMARY_MECHS.forEach(function (x) { s += '<option value="' + x.id + '"' + (sm.mech === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>'; });
-    s += '</select><p class="note" data-k="mechNote"></p>' +
-      '<button type="button" class="btn primary" data-k="try">この機構を試す →</button>' +
-      '<p class="note">試したあとは、画面上の「まとめ課題に戻る」を押すと、ここに戻れます。</p></div>' +
-      '<div class="field"><label for="tReason">3. 選んだ機構と理由</label><textarea id="tReason" data-f="reason"></textarea></div>' +
-      '<div class="field"><label for="tLearned">4. 試して分かったこと</label><textarea id="tLearned" data-f="learned"></textarea></div>' +
-      '<div class="field"><label for="tAdjust">5. 調整した点と理由</label><textarea id="tAdjust" data-f="adjust"></textarea></div>' +
-      '<div class="field"><label for="tAll">まとめてコピー（提出用）</label>' +
-      '<textarea id="tAll" class="copy-area" readonly></textarea>' +
-      '<div class="controls" style="margin-top:8px"><button type="button" class="btn primary" data-k="copy">まとめてコピー</button></div>' +
-      '<p class="note" data-k="copyMsg" aria-live="polite"></p></div>' +
-      '<p class="note">氏名などの個人情報は、ここには書かないでください。</p>' +
+    s += '<\/div><\/div>' +
+      '<div class="field"><label for="mechSel">2. 機構を選んで試す<\/label>' +
+      '<select id="mechSel"><option value="">（機構を選ぶ）<\/option>';
+    SUMMARY_MECHS.forEach(function (x) { s += '<option value="' + x.id + '"' + (sm.mech === x.id ? ' selected' : '') + '>' + esc(x.name) + '<\/option>'; });
+    s += '<\/select><p class="note" data-k="mechNote"><\/p>' +
+      '<button type="button" class="btn primary" data-k="try">この機構を試す →<\/button>' +
+      '<p class="note">試したあとは、画面上の「まとめ課題に戻る」を押すと、ここに戻れます。<\/p><\/div>' +
+      '<div class="field"><label for="tReason">3. 選んだ機構と理由<\/label><textarea id="tReason" data-f="reason"><\/textarea><\/div>' +
+      '<div class="field"><label for="tLearned">4. 試して分かったこと<\/label><textarea id="tLearned" data-f="learned"><\/textarea><\/div>' +
+      '<div class="field"><label for="tAdjust">5. 調整した点と理由<\/label><textarea id="tAdjust" data-f="adjust"><\/textarea><\/div>' +
+      '<div class="field"><label for="tAll">まとめてコピー（提出用）<\/label>' +
+      '<textarea id="tAll" class="copy-area" readonly><\/textarea>' +
+      '<div class="controls" style="margin-top:8px"><button type="button" class="btn primary" data-k="copy">まとめてコピー<\/button><\/div>' +
+      '<p class="note" data-k="copyMsg" aria-live="polite"><\/p><\/div>' +
+      '<p class="note">氏名などの個人情報は、ここには書かないでください。<\/p>' +
       pagerHtml(['home', '← ホーム'], null);
     app.innerHTML = s;
     var all = app.querySelector('#tAll');
@@ -1082,3 +1083,4 @@
   // 動作確認用（Playwright のテストから状態を読むため）
   window.__sim = { state: state, go: go };
 })();
+</script>
